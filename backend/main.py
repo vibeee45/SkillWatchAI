@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from pathlib import Path
@@ -9,6 +10,9 @@ from pydantic import BaseModel
 
 from camera.camera_manager import CameraManager
 from camera.camera_store import CameraStore
+from processing.frame_pipeline import FramePipeline
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -21,6 +25,7 @@ app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring 
 camera_manager = CameraManager()
 camera_store = CameraStore(DATA_DIR / "cameras.json")
 camera_lock = threading.Lock()
+frame_pipeline = FramePipeline(sample_every_n=3, target_width=640, target_height=360)
 
 
 class CameraConnectRequest(BaseModel):
@@ -59,6 +64,18 @@ def health():
 @app.get("/api/camera/status")
 def camera_status():
     return camera_manager.get_status()
+
+
+@app.get("/api/pipeline/status")
+def pipeline_status():
+    """Return Phase 3 frame-processing metrics and configuration."""
+    return frame_pipeline.get_status()
+
+
+@app.post("/api/pipeline/reset")
+def pipeline_reset():
+    frame_pipeline.reset()
+    return {"message": "Frame pipeline metrics reset.", "status": frame_pipeline.get_status()}
 
 
 @app.get("/api/cameras")
@@ -149,6 +166,9 @@ def frame_generator():
         if not success or packet is None:
             time.sleep(0.05)
             continue
+        ai_frame = frame_pipeline.process(packet)
+        if ai_frame is not None:
+            frame_pipeline.run_ai(ai_frame)
         ok, encoded = cv2.imencode(".jpg", packet.frame)
         if not ok:
             continue

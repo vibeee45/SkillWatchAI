@@ -89,3 +89,7 @@ Expected health response:
 ## Current status
 
 Phase 1 foundation only. AI and camera implementations are intentionally left for their respective phases.
+
+
+## Phase 3
+Phase 3 adds frame sampling, inference resizing, frame metadata, image-quality checks, FPS/latency metrics, and a common AIProcessor interface. See PHASE_3_COMPLETE_CHECKLIST.md.

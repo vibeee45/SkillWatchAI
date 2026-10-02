@@ -309,5 +309,32 @@ loadBtn.addEventListener("click", loadSavedCameras);
 loadSavedCameras();
 
 </script>
+<script>
+(function(){
+  const originalUpdate = window.setInterval;
+  async function updatePipelineStatus(){
+    try {
+      const r = await fetch('/api/pipeline/status');
+      if (!r.ok) return;
+      const d = await r.json();
+      let el = document.getElementById('phase3-pipeline-status');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'phase3-pipeline-status';
+        el.style.cssText = 'margin-top:12px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;';
+        document.body.appendChild(el);
+      }
+      const s = d.stats || {};
+      el.innerHTML = '<strong>Frame Pipeline</strong><br>' +
+        'Sample: every ' + d.sample_every_n + ' frame(s) · ' +
+        'Processed: ' + s.processed_frames + ' · ' +
+        'Processing FPS: ' + s.processing_fps + ' · ' +
+        'Avg latency: ' + s.avg_latency_ms + ' ms';
+    } catch (_) {}
+  }
+  updatePipelineStatus();
+  setInterval(updatePipelineStatus, 1000);
+})();
+</script>
 </body>
 </html>
