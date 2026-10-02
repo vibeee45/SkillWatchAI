@@ -6,3 +6,5 @@ psycopg[binary]
 python-dotenv
 opencv-python
 numpy
+
+python-multipart

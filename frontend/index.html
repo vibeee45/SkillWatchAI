@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkillWatch AI — Camera Manager</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif;
+      background: #f4f6f8; color: #17202a;
+    }
+    .topbar {
+      background: #16232e; color: white; padding: 18px 30px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .brand { font-size: 22px; font-weight: 700; }
+    .subtitle { font-size: 13px; opacity: .7; margin-top: 3px; }
+    .page { max-width: 1180px; margin: 28px auto; padding: 0 20px; }
+    .grid { display: grid; grid-template-columns: 360px 1fr; gap: 22px; }
+    .card {
+      background: white; border: 1px solid #e0e5e9; border-radius: 12px;
+      padding: 22px; box-shadow: 0 3px 12px rgba(0,0,0,.04);
+    }
+    h2 { margin: 0 0 18px; font-size: 18px; }
+    label { display:block; font-size: 13px; font-weight: 600; margin: 14px 0 7px; }
+    input, select {
+      width: 100%; padding: 11px 12px; border: 1px solid #cbd3da;
+      border-radius: 7px; background: white; font-size: 14px;
+    }
+    .buttons { display:flex; gap:10px; margin-top:20px; }
+    button {
+      border: 0; border-radius: 7px; padding: 11px 15px; cursor:pointer;
+      font-weight: 600; font-size: 14px;
+    }
+    .primary { background:#1f6feb; color:white; }
+    .danger { background:#e9edf1; color:#26333d; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .preview {
+      background:#0d141a; border-radius:10px; min-height:520px;
+      display:flex; align-items:center; justify-content:center; overflow:hidden;
+    }
+    #stream {
+      display:none; max-width:100%; max-height:620px; width:auto; height:auto;
+    }
+    .placeholder { color:#94a3ad; text-align:center; padding:40px; }
+    .status {
+      display:flex; align-items:center; gap:8px; margin-top:16px;
+      padding:11px 13px; background:#f6f8fa; border-radius:7px; font-size:13px;
+    }
+    .dot { width:9px; height:9px; border-radius:50%; background:#aab4bc; }
+    .dot.connected { background:#18a558; }
+    .meta { display:flex; gap:24px; flex-wrap:wrap; margin-top:14px; font-size:13px; color:#66737d; }
+    .message { margin-top:12px; font-size:13px; min-height:18px; }
+    .hidden { display:none !important; }
+    .file-row { margin-top: 5px; }
+    @media(max-width: 850px) { .grid { grid-template-columns:1fr; } .preview { min-height:360px; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand">SkillWatch AI</div>
+      <div class="subtitle">Training Centre Camera Manager</div>
+    </div>
+    <div id="headerStatus">Disconnected</div>
+  </header>
+
+  <main class="page">
+    <div class="grid">
+      <section class="card">
+        <h2>Camera Configuration</h2>
+
+        <label for="sourceType">Camera Source</label>
+        <select id="sourceType">
+          <option value="device">Laptop / USB Camera</option>
+          <option value="rtsp">RTSP / IP / CCTV Camera</option>
+          <option value="file">MP4 / Video File</option>
+        </select>
+
+        <div id="deviceFields">
+          <label for="cameraIndex">Camera Index</label>
+          <input id="cameraIndex" type="number" min="0" value="0" />
+        </div>
+
+        <div id="rtspFields" class="hidden">
+          <label for="rtspUrl">RTSP URL</label>
+          <input id="rtspUrl" placeholder="rtsp://username:password@192.168.1.100:554/stream" />
+        </div>
+
+        <div id="fileFields" class="hidden">
+          <label for="videoFile">Video File</label>
+          <input id="videoFile" type="file" accept=".mp4,.avi,.mov,.mkv,.webm,video/*" />
+        </div>
+
+        <label for="cameraId">Camera ID</label>
+        <input id="cameraId" value="CAM-001" />
+
+        <label for="room">Room / Training Centre Area</label>
+        <input id="room" value="Training Room 01" />
+
+        <div class="buttons">
+          <button class="primary" id="connectBtn">Connect Camera</button>
+          <button class="danger" id="disconnectBtn" disabled>Disconnect</button>
+        </div>
+
+        <div class="status">
+          <span class="dot" id="statusDot"></span>
+          <span id="statusText">Disconnected</span>
+        </div>
+
+        <div class="buttons" style="margin-top:12px;">
+          <button class="danger" id="saveBtn">Save Configuration</button>
+          <button class="danger" id="loadBtn">Load Saved Cameras</button>
+        </div>
+        <select id="savedCameras" class="hidden"><option value="">Select saved camera...</option></select>
+        <div class="message" id="message"></div>
+      </section>
+
+      <section class="card">
+        <h2>Live Camera Preview</h2>
+        <div class="preview">
+          <img id="stream" src="/api/camera/stream" alt="Camera stream" />
+          <div class="placeholder" id="placeholder">
+            Connect a camera source to start the preview.
+          </div>
+        </div>
+
+        <div class="meta">
+          <span id="resolution">Resolution: —</span>
+          <span id="fps">FPS: —</span>
+          <span id="sourceLabel">Source: —</span>
+          <span id="roomLabel">Room: —</span><span id="healthLabel">Health: —</span><span id="lastFrame">Last frame: —</span><span id="reconnectLabel">Reconnects: 0</span>
+        </div>
+      </section>
+    </div>
+  </main>
+
+<script>
+const sourceType = document.getElementById("sourceType");
+const deviceFields = document.getElementById("deviceFields");
+const rtspFields = document.getElementById("rtspFields");
+const fileFields = document.getElementById("fileFields");
+const connectBtn = document.getElementById("connectBtn");
+const disconnectBtn = document.getElementById("disconnectBtn");
+const stream = document.getElementById("stream");
+const placeholder = document.getElementById("placeholder");
+const message = document.getElementById("message");
+const statusDot = document.getElementById("statusDot");
+const statusText = document.getElementById("statusText");
+const headerStatus = document.getElementById("headerStatus");
+
+sourceType.addEventListener("change", () => {
+  deviceFields.classList.toggle("hidden", sourceType.value !== "device");
+  rtspFields.classList.toggle("hidden", sourceType.value !== "rtsp");
+  fileFields.classList.toggle("hidden", sourceType.value !== "file");
+  clearMessage();
+});
+
+function clearMessage() { message.textContent = ""; }
+
+function setStatus(status) {
+  const connected = !!status.connected;
+  statusDot.classList.toggle("connected", connected);
+  statusText.textContent = connected ? "Connected" : "Disconnected";
+  headerStatus.textContent = connected ? "● Connected" : "Disconnected";
+  disconnectBtn.disabled = !connected;
+  connectBtn.disabled = connected;
+
+  if (connected) {
+    stream.style.display = "block";
+    placeholder.style.display = "none";
+    document.getElementById("resolution").textContent =
+      `Resolution: ${status.width || 0} × ${status.height || 0}`;
+    document.getElementById("fps").textContent =
+      `FPS: ${Number(status.fps || 0).toFixed(1)}`;
+    document.getElementById("sourceLabel").textContent =
+      `Source: ${status.source_type || "—"}`;
+    document.getElementById("roomLabel").textContent = `Room: ${status.room || "—"}`;
+    document.getElementById("healthLabel").textContent = `Health: ${status.health || "—"}`;
+    document.getElementById("lastFrame").textContent = `Last frame: ${status.last_frame_at ? new Date(status.last_frame_at).toLocaleTimeString() : "—"}`;
+    document.getElementById("reconnectLabel").textContent = `Reconnects: ${status.reconnect_attempts || 0}`;
+  } else {
+    stream.style.display = "none";
+    placeholder.style.display = "block";
+    document.getElementById("resolution").textContent = "Resolution: —";
+    document.getElementById("fps").textContent = "FPS: —";
+    document.getElementById("sourceLabel").textContent = "Source: —";
+    document.getElementById("roomLabel").textContent = "Room: —";
+    document.getElementById("healthLabel").textContent = "Health: —";
+    document.getElementById("lastFrame").textContent = "Last frame: —";
+    document.getElementById("reconnectLabel").textContent = "Reconnects: 0";
+  }
+}
+
+async function connectCamera() {
+  clearMessage();
+
+  const type = sourceType.value;
+  const cameraId = document.getElementById("cameraId").value.trim() || "CAM-001";
+  const room = document.getElementById("room").value.trim() || "Training Room 01";
+
+  try {
+    let response;
+
+    if (type === "file") {
+      const file = document.getElementById("videoFile").files[0];
+      if (!file) {
+        throw new Error("Please select an MP4/video file.");
+      }
+
+      const form = new FormData();
+      form.append("file", file);
+      form.append("camera_id", cameraId);
+      form.append("room", room);
+
+      response = await fetch("/api/camera/connect-upload", {
+        method: "POST",
+        body: form
+      });
+    } else {
+      const payload = {
+        source_type: type,
+        camera_id: cameraId,
+        room: room,
+        camera_index: Number(document.getElementById("cameraIndex").value || 0),
+        rtsp_url: document.getElementById("rtspUrl").value.trim() || null
+      };
+
+      response = await fetch("/api/camera/connect", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+    }
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.detail || "Camera connection failed.");
+    }
+
+    setStatus(data.status);
+    message.textContent = data.message;
+    message.style.color = "#16803c";
+  } catch (error) {
+    message.textContent = error.message;
+    message.style.color = "#b42318";
+  }
+}
+
+async function disconnectCamera() {
+  clearMessage();
+
+  try {
+    const response = await fetch("/api/camera/disconnect", {method: "POST"});
+    const data = await response.json();
+    setStatus(data.status);
+    message.textContent = data.message;
+    message.style.color = "#16803c";
+  } catch (error) {
+    message.textContent = error.message;
+    message.style.color = "#b42318";
+  }
+}
+
+async function refreshStatus() {
+  try {
+    const response = await fetch("/api/camera/status");
+    const status = await response.json();
+    setStatus(status);
+  } catch (_) {}
+}
+
+connectBtn.addEventListener("click", connectCamera);
+disconnectBtn.addEventListener("click", disconnectCamera);
+refreshStatus();
+setInterval(refreshStatus, 3000);
+
+const saveBtn = document.getElementById("saveBtn");
+const loadBtn = document.getElementById("loadBtn");
+const savedCameras = document.getElementById("savedCameras");
+
+async function saveConfiguration() {
+  const status = await (await fetch("/api/camera/status")).json();
+  const type = sourceType.value;
+  let source = type === "device" ? String(document.getElementById("cameraIndex").value || 0) : type === "rtsp" ? document.getElementById("rtspUrl").value.trim() : (document.getElementById("videoFile").files[0]?.name || "");
+  if (!source) { message.textContent = "Enter/select a source before saving."; message.style.color="#b42318"; return; }
+  const payload = {camera_id: document.getElementById("cameraId").value.trim() || "CAM-001", room: document.getElementById("room").value.trim() || "Training Room 01", source_type:type, source:source, camera_index:type === "device" ? Number(source) : null};
+  const r = await fetch("/api/cameras", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+  const d = await r.json(); message.textContent = r.ok ? "Configuration saved." : (d.detail || "Could not save configuration."); message.style.color = r.ok ? "#16803c" : "#b42318"; if(r.ok) loadSavedCameras();
+}
+
+async function loadSavedCameras() {
+  const r = await fetch("/api/cameras"); const d = await r.json(); savedCameras.innerHTML = '<option value="">Select saved camera...</option>';
+  d.cameras.forEach(c => { const o=document.createElement("option"); o.value=c.camera_id; o.textContent=`${c.camera_id} — ${c.room} (${c.source_type})`; savedCameras.appendChild(o); });
+  savedCameras.classList.toggle("hidden", !d.cameras.length);
+}
+
+savedCameras.addEventListener("change", async () => {
+  if(!savedCameras.value) return; const c=await (await fetch(`/api/cameras/${encodeURIComponent(savedCameras.value)}`)).json();
+  document.getElementById("cameraId").value=c.camera_id||""; document.getElementById("room").value=c.room||""; sourceType.value=c.source_type||"device"; sourceType.dispatchEvent(new Event("change"));
+  if(c.source_type==="device") document.getElementById("cameraIndex").value=c.camera_index ?? c.source ?? 0;
+  if(c.source_type==="rtsp") document.getElementById("rtspUrl").value=c.source||"";
+});
+
+saveBtn.addEventListener("click", saveConfiguration);
+loadBtn.addEventListener("click", loadSavedCameras);
+loadSavedCameras();
+
+</script>
+</body>
+</html>
