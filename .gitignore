@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.log
+
+data/*
+evidence/*
+models/*
+
+!data/.gitkeep
+!evidence/.gitkeep
+!models/.gitkeep
+
+.vscode/
+.idea/
