@@ -15,6 +15,7 @@ class CameraManager:
 
     def __init__(self, reconnect_interval: float = 3.0, max_reconnect_attempts: int = 0):
         self.capture: Optional[cv2.VideoCapture] = None
+        self._latest_frame = None
         self.source = None
         self.source_type = None
         self.camera_id = None
@@ -130,13 +131,50 @@ class CameraManager:
         with self._lock:
             if not self.capture or not self.is_connected:
                 return False, None
+
             success, frame = self.capture.read()
+
             if not success:
                 self._mark_frame_failure("Frame read failed.")
                 return False, None
-            self._mark_frame_success()
-            return True, frame
 
+            self._mark_frame_success()
+
+        # Store a copy of the latest successful frame.
+        # Other consumers such as enrollment must use this cached frame
+        # instead of calling VideoCapture.read() again.
+            self._latest_frame = frame.copy()
+
+            return True, frame
+    def get_latest_frame_packet(self):
+        """
+    Return the most recently captured frame.
+
+    This does NOT call VideoCapture.read().
+    The live preview owns the camera read loop.
+    """
+
+        with self._lock:
+            if not self.is_connected or self._latest_frame is None:
+                return False, None
+
+            frame = self._latest_frame.copy()
+
+            height, width = frame.shape[:2]
+
+            packet = FramePacket(
+            frame=frame,
+            camera_id=self.camera_id,
+            room=self.room,
+            source_type=self.source_type,
+            timestamp=self.last_frame_at or FramePacket.now_iso(),
+            frame_number=self.frame_count,
+            width=width,
+            height=height,
+            fps=self.actual_fps or self.get_fps(),
+        )
+
+            return True, packet
     def read_frame_packet(self) -> tuple[bool, Optional[FramePacket]]:
         success, frame = self.read_frame()
         if not success or frame is None:
@@ -219,6 +257,7 @@ class CameraManager:
             if self.capture:
                 self.capture.release()
             self.capture = None
+            self._latest_frame = None
             self.is_connected = False
             self.health = "disconnected"
             self.last_error = None

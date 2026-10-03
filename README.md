@@ -97,3 +97,22 @@ Phase 3 adds frame sampling, inference resizing, frame metadata, image-quality c
 ## Phase 4 — Face Detection
 
 Phase 4 adds local YuNet face detection, confidence scores, bounding boxes, face-quality checks, multiple-face support, and lightweight IoU tracking. Face detection is local and does not perform identity recognition.
+
+
+## Phase 5 — Student Enrollment
+
+Student enrollment is implemented with local SQLite metadata, YuNet quality validation, OpenCV SFace representations, and encrypted-at-rest face representations. Raw enrollment frames are not persisted by the enrollment service. Recognition and attendance matching are intentionally deferred to a later phase.
+
+Download the SFace model:
+
+```powershell
+python tools/download_sface_model.py
+```
+
+Run the backend:
+
+```powershell
+uvicorn backend.main:app --reload
+```
+
+Then open the dashboard and use **Student Enrollment**. Connect a camera first, enter Student ID/name/batch, confirm consented/staged demo use, capture 3 valid samples, and save.

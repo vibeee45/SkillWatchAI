@@ -206,8 +206,7 @@ class FaceDetector:
 
         if raw_faces is not None:
             for row in raw_faces:
-                x, y, w, h = [float(v) for v in row[:4]]
-                confidence = float(row[14])
+                x, y, w, h, confidence = [float(v) for v in row[:5]]
                 bbox = (int(round(x)), int(round(y)), int(round(w)), int(round(h)))
                 valid, reasons, brightness, blur_score = self._quality(frame, bbox)
                 detections.append(

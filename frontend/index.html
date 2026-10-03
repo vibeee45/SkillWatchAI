@@ -54,6 +54,21 @@
     .message { margin-top:12px; font-size:13px; min-height:18px; }
     .hidden { display:none !important; }
     .file-row { margin-top: 5px; }
+    .student-card { margin-top: 22px; }
+    .student-grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px; }
+    .student-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+    .student-message { margin-top:12px; min-height:20px; font-size:13px; }
+    .student-progress { margin-top:14px; padding:12px; border-radius:8px; background:#f5f7fa; font-size:13px; }
+    .consent { display:flex; align-items:flex-start; gap:9px; margin-top:14px; font-size:13px; line-height:1.45; }
+    .consent input { width:auto; margin-top:3px; }
+    .student-list { margin-top:18px; overflow:auto; }
+    .student-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .student-table th, .student-table td { padding:10px 8px; border-bottom:1px solid #e6eaee; text-align:left; }
+    .student-table th { background:#f7f9fb; font-weight:700; }
+    .small-btn { padding:7px 10px; font-size:12px; }
+    .secondary { background:#e9edf1; color:#26333d; }
+    .warning { background:#fff2cc; color:#7a5200; }
+    @media(max-width: 850px) { .student-grid { grid-template-columns:1fr; } }
     @media(max-width: 850px) { .grid { grid-template-columns:1fr; } .preview { min-height:360px; } }
   </style>
 </head>
@@ -134,6 +149,57 @@
         </div>
       </section>
     </div>
+
+    <section class="card student-card">
+      <h2>Student Enrollment</h2>
+      <div style="font-size:13px;color:#66737d;line-height:1.5;">
+        Register a consented/staged demo student. The system captures 3 valid face samples, creates a protected local representation, and does not persist raw enrollment frames.
+      </div>
+
+      <div class="student-grid" style="margin-top:12px;">
+        <div>
+          <label for="studentId">Student ID</label>
+          <input id="studentId" placeholder="STU-001" />
+        </div>
+        <div>
+          <label for="studentName">Student Name</label>
+          <input id="studentName" placeholder="Demo Student" />
+        </div>
+        <div>
+          <label for="studentBatch">Batch</label>
+          <input id="studentBatch" placeholder="Batch A - 2026" />
+        </div>
+      </div>
+
+      <label class="consent">
+        <input type="checkbox" id="consentConfirm" />
+        <span>I confirm this is a consented/staged demo enrollment and the student has authorized the use of face data for this prototype.</span>
+      </label>
+
+      <div class="student-actions">
+        <button class="primary" id="startEnrollmentBtn">Start Enrollment</button>
+        <button class="secondary" id="captureSampleBtn" disabled>Capture Sample</button>
+        <button class="primary" id="saveEnrollmentBtn" disabled>Save / Update Student</button>
+        <button class="secondary" id="cancelEnrollmentBtn" disabled>Cancel</button>
+      </div>
+
+      <div class="student-progress" id="enrollmentProgress">Enrollment not started.</div>
+      <div class="student-message" id="studentMessage"></div>
+
+      <div class="student-list">
+        <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px;">
+          <strong>Enrolled Students</strong>
+          <div style="display:flex;gap:8px;">
+            <input id="studentSearch" placeholder="Search ID, name or batch" style="max-width:280px;" />
+            <button class="secondary small-btn" id="refreshStudentsBtn">Refresh</button>
+          </div>
+        </div>
+        <table class="student-table">
+          <thead><tr><th>Student ID</th><th>Name</th><th>Batch</th><th>Samples</th><th>Quality</th><th>Action</th></tr></thead>
+          <tbody id="studentTableBody"><tr><td colspan="6">No enrolled students.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
 <script>
@@ -362,6 +428,113 @@ loadSavedCameras();
   }
   updateFaceStatus();
   setInterval(updateFaceStatus, 1000);
+})();
+</script>
+<script>
+(function(){
+  const studentId = document.getElementById('studentId');
+  const studentName = document.getElementById('studentName');
+  const studentBatch = document.getElementById('studentBatch');
+  const consentConfirm = document.getElementById('consentConfirm');
+  const startBtn = document.getElementById('startEnrollmentBtn');
+  const captureBtn = document.getElementById('captureSampleBtn');
+  const saveBtn = document.getElementById('saveEnrollmentBtn');
+  const cancelBtn = document.getElementById('cancelEnrollmentBtn');
+  const progress = document.getElementById('enrollmentProgress');
+  const msg = document.getElementById('studentMessage');
+  const search = document.getElementById('studentSearch');
+  const body = document.getElementById('studentTableBody');
+  let activeStudentId = null;
+  let sampleCount = 0;
+
+  function message(text, ok=false){ msg.textContent=text; msg.style.color=ok ? '#16803c' : '#b42318'; }
+  function setProgress(text){ progress.textContent=text; }
+  function setButtons(active){
+    captureBtn.disabled = !active || sampleCount >= 3;
+    saveBtn.disabled = !active || sampleCount < 3;
+    cancelBtn.disabled = !active;
+    startBtn.disabled = active;
+  }
+
+  async function startEnrollment(){
+    message('');
+    const payload = {
+      student_id: studentId.value.trim(),
+      name: studentName.value.trim(),
+      batch: studentBatch.value.trim(),
+      consent_confirmed: consentConfirm.checked
+    };
+    try{
+      const r=await fetch('/api/students/enrollment/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const d=await r.json();
+      if(!r.ok) throw new Error(d.detail || 'Could not start enrollment.');
+      activeStudentId=payload.student_id; sampleCount=0;
+      setProgress('Enrollment started. Keep exactly one face visible and capture 3 valid samples.');
+      message(d.message,true); setButtons(true);
+    }catch(e){ message(e.message); }
+  }
+
+  async function captureSample(){
+    if(!activeStudentId) return;
+    message('');
+    try{
+      const r=await fetch('/api/students/enrollment/capture?student_id='+encodeURIComponent(activeStudentId),{method:'POST'});
+      const d=await r.json();
+      if(!r.ok) throw new Error(d.detail || 'Sample capture failed.');
+      sampleCount=d.sample_count;
+      setProgress(`Valid samples: ${sampleCount}/3 · confidence ${d.quality.confidence} · brightness ${d.quality.brightness} · blur ${d.quality.blur_score}`);
+      message(d.message,true); setButtons(true);
+    }catch(e){ message(e.message); }
+  }
+
+  async function saveEnrollment(){
+    if(!activeStudentId) return;
+    try{
+      const r=await fetch('/api/students/enrollment/finalize?student_id='+encodeURIComponent(activeStudentId),{method:'POST'});
+      const d=await r.json();
+      if(!r.ok) throw new Error(d.detail || 'Could not save student.');
+      message(d.message,true);
+      setProgress(`Saved ${d.student.name} (${d.student.student_id}) with ${d.student.sample_count} protected sample representation(s).`);
+      activeStudentId=null; sampleCount=0; setButtons(false);
+      await loadStudents();
+    }catch(e){ message(e.message); }
+  }
+
+  async function cancelEnrollment(){
+    if(activeStudentId){ await fetch('/api/students/enrollment/cancel?student_id='+encodeURIComponent(activeStudentId),{method:'POST'}); }
+    activeStudentId=null; sampleCount=0; setButtons(false); setProgress('Enrollment cancelled.'); message('',true);
+  }
+
+  async function loadStudents(){
+    const q=search.value.trim();
+    const r=await fetch('/api/students?query='+encodeURIComponent(q));
+    const d=await r.json();
+    body.innerHTML='';
+    if(!d.students.length){ body.innerHTML='<tr><td colspan="6">No enrolled students.</td></tr>'; return; }
+    d.students.forEach(s=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${escapeHtml(s.student_id)}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.batch)}</td><td>${s.sample_count}</td><td>${(Number(s.quality_score)*100).toFixed(0)}%</td><td><button class="secondary small-btn edit-student">Edit</button> <button class="warning small-btn delete-student">Remove</button></td>`;
+      tr.querySelector('.edit-student').onclick=()=>{
+        studentId.value=s.student_id; studentName.value=s.name; studentBatch.value=s.batch; consentConfirm.checked=true;
+        setProgress('Student loaded for re-enrollment/update. Start enrollment to replace the protected representation.');
+        window.scrollTo({top:document.querySelector('.student-card').offsetTop-20,behavior:'smooth'});
+      };
+      tr.querySelector('.delete-student').onclick=async()=>{
+        if(!confirm('Remove enrollment for '+s.name+'?')) return;
+        const rr=await fetch('/api/students/'+encodeURIComponent(s.student_id),{method:'DELETE'});
+        const dd=await rr.json(); if(!rr.ok){message(dd.detail||'Remove failed.');return;}
+        message(dd.message,true); await loadStudents();
+      };
+      body.appendChild(tr);
+    });
+  }
+
+  function escapeHtml(value){ return String(value).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  startBtn.onclick=startEnrollment; captureBtn.onclick=captureSample; saveBtn.onclick=saveEnrollment; cancelBtn.onclick=cancelEnrollment;
+  document.getElementById('refreshStudentsBtn').onclick=loadStudents;
+  search.addEventListener('input',()=>{ clearTimeout(window.__studentSearchTimer); window.__studentSearchTimer=setTimeout(loadStudents,250); });
+  setButtons(false); loadStudents();
 })();
 </script>
 </body>

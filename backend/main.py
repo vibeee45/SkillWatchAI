@@ -13,6 +13,10 @@ from camera.camera_store import CameraStore
 from processing.frame_pipeline import FramePipeline
 from face_attendance.face_detector import FaceDetector
 from face_attendance.processor import FaceDetectionProcessor
+from face_attendance.enrollment import EnrollmentService
+from face_attendance.protected_store import ProtectedRepresentationStore
+from face_attendance.recognizer import SFaceRecognizer
+from face_attendance.student_store import StudentStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
@@ -23,13 +27,20 @@ DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.3.0")
+app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.4.0")
 camera_manager = CameraManager()
 camera_store = CameraStore(DATA_DIR / "cameras.json")
 camera_lock = threading.Lock()
 face_detector = FaceDetector(BASE_DIR / "models" / "face_detection_yunet_2023mar.onnx", confidence_threshold=0.6)
 face_processor = FaceDetectionProcessor(face_detector)
 frame_pipeline = FramePipeline(sample_every_n=3, target_width=640, target_height=360, ai_processor=face_processor)
+
+student_store = StudentStore(DATA_DIR / "students.db")
+representation_store = ProtectedRepresentationStore(DATA_DIR / ".face_key")
+sface_recognizer = SFaceRecognizer(BASE_DIR / "models" / "face_recognition_sface_2021dec.onnx")
+enrollment_service = EnrollmentService(face_detector, sface_recognizer)
+enrollment_sessions: dict[str, dict] = {}
+enrollment_lock = threading.Lock()
 
 
 class CameraConnectRequest(BaseModel):
@@ -91,6 +102,153 @@ def pipeline_status():
 def pipeline_reset():
     frame_pipeline.reset()
     return {"message": "Frame pipeline metrics reset.", "status": frame_pipeline.get_status()}
+
+
+@app.get("/api/enrollment/status")
+def enrollment_status():
+    return {
+        "model": sface_recognizer.status(),
+        "active_sessions": len(enrollment_sessions),
+        "sample_target": 3,
+    }
+
+
+@app.get("/api/students")
+def list_students(query: str = ""):
+    return {"students": student_store.list(query)}
+
+
+@app.get("/api/students/{student_id}")
+def get_student(student_id: str):
+    student = student_store.get(student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    return student
+
+
+class EnrollmentStartRequest(BaseModel):
+    student_id: str
+    name: str
+    batch: str
+    consent_confirmed: bool = False
+
+
+@app.post("/api/students/enrollment/start")
+def start_enrollment(request: EnrollmentStartRequest):
+    student_id = request.student_id.strip()
+    name = request.name.strip()
+    batch = request.batch.strip()
+    if not student_id or not name or not batch:
+        raise HTTPException(status_code=400, detail="Student ID, name and batch are required.")
+    if not request.consent_confirmed:
+        raise HTTPException(status_code=400, detail="Consent/demo authorization must be confirmed.")
+    with enrollment_lock:
+        enrollment_sessions[student_id] = {
+            "student_id": student_id,
+            "name": name,
+            "batch": batch,
+            "consent_confirmed": True,
+            "samples": [],
+        }
+    return {"message": "Enrollment session started.", "student_id": student_id, "sample_count": 0, "target": 3}
+
+
+@app.post("/api/students/enrollment/capture")
+def capture_enrollment_sample(student_id: str):
+    with enrollment_lock:
+        session = enrollment_sessions.get(student_id)
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="Start an enrollment session first."
+        )
+
+    if not camera_manager.is_connected:
+        raise HTTPException(
+            status_code=409,
+            detail="Connect a camera before capturing enrollment samples."
+        )
+
+    # IMPORTANT:
+    # Do NOT call VideoCapture.read() here.
+    # The live preview already owns the camera read loop.
+    # Enrollment consumes the latest cached frame instead.
+    success, packet = camera_manager.get_latest_frame_packet()
+
+    if not success or packet is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Waiting for a live camera frame. Keep the preview connected and try again."
+        )
+
+    try:
+        sample = enrollment_service.process_frame(packet.frame)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc)
+        ) from exc
+
+    with enrollment_lock:
+        session["samples"].append(sample)
+        count = len(session["samples"])
+
+    return {
+        "message": f"Valid sample {count}/3 captured.",
+        "student_id": student_id,
+        "sample_count": count,
+        "target": 3,
+        "quality": {
+            "confidence": round(sample.confidence, 3),
+            "brightness": round(sample.brightness, 2),
+            "blur_score": round(sample.blur_score, 2),
+        },
+        "sface_inference_ms": round(
+            sface_recognizer.last_inference_ms, 2
+        ),
+    }
+
+
+@app.post("/api/students/enrollment/finalize")
+def finalize_enrollment(student_id: str):
+    with enrollment_lock:
+        session = enrollment_sessions.get(student_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Enrollment session not found.")
+        samples = list(session["samples"])
+        if len(samples) < 3:
+            raise HTTPException(status_code=422, detail=f"Capture 3 valid samples before saving. Current: {len(samples)}/3.")
+        aggregate = sface_recognizer.aggregate([sample.feature for sample in samples])
+        protected = representation_store.protect(aggregate)
+        quality_score = enrollment_service.quality_score(samples)
+        student = student_store.upsert(
+            student_id=session["student_id"],
+            name=session["name"],
+            batch=session["batch"],
+            representation=protected,
+            sample_count=len(samples),
+            quality_score=quality_score,
+            consent_confirmed=session["consent_confirmed"],
+        )
+        enrollment_sessions.pop(student_id, None)
+    return {"message": "Student enrollment saved.", "student": student}
+
+
+@app.post("/api/students/enrollment/cancel")
+def cancel_enrollment(student_id: str):
+    with enrollment_lock:
+        removed = enrollment_sessions.pop(student_id, None) is not None
+    return {"message": "Enrollment session cancelled.", "removed": removed}
+
+
+@app.delete("/api/students/{student_id}")
+def delete_student(student_id: str):
+    with enrollment_lock:
+        enrollment_sessions.pop(student_id, None)
+    if not student_store.delete(student_id):
+        raise HTTPException(status_code=404, detail="Student not found.")
+    return {"message": "Student enrollment removed."}
 
 
 @app.get("/api/cameras")
