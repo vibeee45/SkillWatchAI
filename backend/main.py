@@ -19,6 +19,7 @@ from face_attendance.protected_store import ProtectedRepresentationStore
 from face_attendance.recognizer import SFaceRecognizer
 from face_attendance.recognition import FaceRecognitionService
 from face_attendance.student_store import StudentStore
+from face_attendance.attendance import AttendanceStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
@@ -41,6 +42,8 @@ student_store = StudentStore(DATA_DIR / "students.db")
 representation_store = ProtectedRepresentationStore(DATA_DIR / ".face_key")
 sface_recognizer = SFaceRecognizer(BASE_DIR / "models" / "face_recognition_sface_2021dec.onnx")
 enrollment_service = EnrollmentService(face_detector, sface_recognizer)
+attendance_store = AttendanceStore(DATA_DIR / "attendance.db")
+
 recognition_service = FaceRecognitionService(
     student_store=student_store,
     representation_store=representation_store,
@@ -53,6 +56,34 @@ recognition_service = FaceRecognitionService(
 )
 enrollment_sessions: dict[str, dict] = {}
 enrollment_lock = threading.Lock()
+
+
+class AttendanceSessionRequest(BaseModel):
+    classroom_id: str
+    batch_id: str
+    session_date: str
+    start_time: str
+    end_time: str
+    camera_id: str
+
+
+class ClassroomRequest(BaseModel):
+    classroom_id: str
+    name: str
+    room: str
+
+
+class BatchRequest(BaseModel):
+    batch_id: str
+    name: str
+
+
+class AttendanceCorrectionRequest(BaseModel):
+    session_id: int
+    student_id: str
+    status: str
+    reason: str = ""
+    actor: str = "admin"
 
 
 class CameraConnectRequest(BaseModel):
@@ -441,6 +472,86 @@ def _annotate_face_detections(frame, ai_result):
     return output
 
 
+
+@app.get("/api/attendance/classrooms")
+def attendance_classrooms():
+    return {"classrooms": attendance_store.list_classrooms()}
+
+
+@app.post("/api/attendance/classrooms")
+def create_attendance_classroom(request: ClassroomRequest):
+    return attendance_store.upsert_classroom(request.classroom_id, request.name, request.room)
+
+
+@app.get("/api/attendance/batches")
+def attendance_batches():
+    return {"batches": attendance_store.list_batches()}
+
+
+@app.post("/api/attendance/batches")
+def create_attendance_batch(request: BatchRequest):
+    return attendance_store.upsert_batch(request.batch_id, request.name)
+
+
+@app.get("/api/attendance/sessions")
+def attendance_sessions():
+    return {"sessions": attendance_store.list_sessions()}
+
+
+@app.post("/api/attendance/sessions")
+def create_attendance_session(request: AttendanceSessionRequest):
+    attendance_store.upsert_classroom(request.classroom_id, request.classroom_id, request.classroom_id)
+    attendance_store.upsert_batch(request.batch_id, request.batch_id)
+    return attendance_store.create_session(request.classroom_id, request.batch_id, request.session_date, request.start_time, request.end_time, request.camera_id)
+
+
+@app.post("/api/attendance/sessions/{session_id}/start")
+def start_attendance_session(session_id: int):
+    session = attendance_store.start_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Attendance session not found.")
+    return session
+
+
+@app.post("/api/attendance/sessions/{session_id}/end")
+def end_attendance_session(session_id: int):
+    session = attendance_store.end_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Attendance session not found.")
+    return session
+
+
+@app.get("/api/attendance/sessions/{session_id}/summary")
+def attendance_summary(session_id: int):
+    result = attendance_store.summary(session_id, student_store.list())
+    if not result:
+        raise HTTPException(status_code=404, detail="Attendance session not found.")
+    return result
+
+
+@app.get("/api/attendance/sessions/{session_id}/audit")
+def attendance_audit(session_id: int):
+    if not attendance_store.get_session(session_id):
+        raise HTTPException(status_code=404, detail="Attendance session not found.")
+    return {"audit": attendance_store.audit(session_id)}
+
+
+@app.post("/api/attendance/correct")
+def correct_attendance(request: AttendanceCorrectionRequest):
+    if not attendance_store.get_session(request.session_id):
+        raise HTTPException(status_code=404, detail="Attendance session not found.")
+    try:
+        return attendance_store.correct(request.session_id, request.student_id, request.status, request.reason, request.actor)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/attendance/status")
+def attendance_status():
+    active = attendance_store.active_session_for_camera(camera_manager.get_status().get("camera_id", ""))
+    return {"active_session": active}
+
+
 def frame_generator():
     while True:
         if not camera_manager.is_connected:
@@ -462,6 +573,20 @@ def frame_generator():
                     timestamp=ai_frame.timestamp,
                 )
                 ai_result["recognition"] = [result.as_dict() for result in recognition_results]
+                active_session = attendance_store.active_session_for_camera(packet.camera_id)
+                if active_session:
+                    auto_attendance = []
+                    for result in recognition_results:
+                        data = result.as_dict()
+                        if data.get("status") == "confirmed" and data.get("student_id"):
+                            record, created = attendance_store.mark_present(
+                                active_session["id"], data["student_id"], float(data.get("similarity", 0.0)), packet.camera_id
+                            )
+                            if created:
+                                auto_attendance.append(record)
+                    ai_result["attendance"] = auto_attendance
+                else:
+                    ai_result["attendance"] = []
             except Exception as exc:
                 logging.getLogger("skillwatch.recognition").warning("Recognition skipped: %s", exc)
                 ai_result["recognition"] = []

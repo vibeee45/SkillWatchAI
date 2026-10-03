@@ -150,7 +150,47 @@
       </section>
     </div>
 
-    <section class="card student-card">
+    
+<section class="card attendance-card" id="attendanceCard">
+  <h2>Automatic Attendance</h2>
+  <div style="font-size:13px;color:#66737d;line-height:1.5;">Start an attendance session for the connected camera. Only confirmed SFace identities are recorded; duplicate check-ins are ignored.</div>
+  <div class="student-grid" style="margin-top:12px;">
+    <div><label>Classroom ID</label><input id="attClassroom" value="ROOM-01" /></div>
+    <div><label>Batch ID</label><input id="attBatch" placeholder="Batch A - 2026" /></div>
+    <div><label>Session Date</label><input id="attDate" type="date" /></div>
+    <div><label>Start Time</label><input id="attStart" type="time" /></div>
+    <div><label>End Time</label><input id="attEnd" type="time" /></div>
+    <div><label>Camera ID</label><input id="attCamera" value="CAM-001" /></div>
+  </div>
+  <div class="buttons" style="margin-top:12px;">
+    <button class="primary" id="createAttendanceBtn">Create Session</button>
+    <button class="primary" id="startAttendanceBtn" disabled>Start Session</button>
+    <button class="danger" id="endAttendanceBtn" disabled>End Session</button>
+  </div>
+  <div class="message" id="attendanceMessage"></div>
+  <div id="attendanceStatus" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;">No attendance session selected.</div>
+  <div class="student-table-wrap" style="margin-top:12px;">
+    <table><thead><tr><th>Student</th><th>Status</th><th>Check-in</th><th>Confidence</th><th>Camera</th><th>Source</th></tr></thead><tbody id="attendanceTableBody"><tr><td colspan="6">Create and start a session.</td></tr></tbody></table>
+  </div>
+  <div class="buttons" style="margin-top:12px;">
+    <button class="secondary" id="refreshAttendanceBtn">Refresh Summary</button>
+    <button class="secondary" id="loadAuditBtn">Load Audit Log</button>
+  </div>
+  <div id="attendanceSummary" style="margin-top:10px;font-size:13px;"></div>
+  <div id="attendanceAudit" style="margin-top:10px;font-size:12px;"></div>
+  <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb;">
+    <strong>Manual Attendance Correction</strong>
+    <div class="student-grid" style="margin-top:8px;">
+      <input id="corrStudent" placeholder="Student ID" />
+      <select id="corrStatus"><option value="PRESENT">PRESENT</option><option value="ABSENT">ABSENT</option></select>
+      <input id="corrReason" placeholder="Reason" />
+      <input id="corrActor" value="admin" placeholder="Actor" />
+    </div>
+    <button class="warning" id="correctAttendanceBtn" style="margin-top:8px;">Apply Correction</button>
+  </div>
+</section>
+
+<section class="card student-card">
       <h2>Student Enrollment</h2>
       <div style="font-size:13px;color:#66737d;line-height:1.5;">
         Register a consented/staged demo student. The system captures 3 valid face samples, creates a protected local representation, and does not persist raw enrollment frames.
@@ -627,6 +667,38 @@ loadSavedCameras();
   document.getElementById('resetRecognitionBtn').onclick=reset;
   refresh();
   setInterval(refresh,1000);
+})();
+</script>
+
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  let sessionId=null;
+  const today=new Date();
+  $('attDate').value=today.toISOString().slice(0,10);
+  $('attCamera').value=$('cameraId')?.value || 'CAM-001';
+  $('attBatch').value=$('studentBatch')?.value || '';
+  function msg(t,ok=false){$('attendanceMessage').textContent=t;$('attendanceMessage').style.color=ok?'#16803c':'#b42318';}
+  function renderSummary(d){
+    $('attendanceSummary').innerHTML=`<strong>Attendance:</strong> ${d.present_count}/${d.total_students} present · ${d.absent_count} absent · ${Number(d.attendance_percentage||0).toFixed(2)}%`;
+    const rows=d.records||[]; const students=d.students||[]; const by=new Map(rows.map(r=>[r.student_id,r]));
+    const all=students.length?students:rows.map(r=>({student_id:r.student_id,name:r.student_id,status:r.status}));
+    $('attendanceTableBody').innerHTML=all.length?all.map(st=>{const r=by.get(st.student_id);return `<tr><td>${esc(st.name||st.student_id)}<br><small>${esc(st.student_id)}</small></td><td>${esc(r?.status||'ABSENT')}</td><td>${r?.check_in_time?new Date(r.check_in_time).toLocaleTimeString():'—'}</td><td>${r?Number(r.confidence).toFixed(3):'—'}</td><td>${r?esc(r.camera_id):'—'}</td><td>${r?esc(r.source):'—'}</td></tr>`}).join(''):'<tr><td colspan="6">No students in this batch.</td></tr>';
+  }
+  function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  async function create(){
+    try{const payload={classroom_id:$('attClassroom').value.trim(),batch_id:$('attBatch').value.trim(),session_date:$('attDate').value,start_time:$('attStart').value,end_time:$('attEnd').value,camera_id:$('attCamera').value.trim()};
+      if(!payload.batch_id||!payload.start_time||!payload.end_time) throw Error('Batch, start time and end time are required.');
+      const r=await fetch('/api/attendance/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.detail||'Could not create session.');sessionId=d.id;msg(`Session #${sessionId} created.`,true);$('startAttendanceBtn').disabled=false;$('endAttendanceBtn').disabled=true;refresh();
+    }catch(e){msg(e.message);}
+  }
+  async function start(){try{const r=await fetch(`/api/attendance/sessions/${sessionId}/start`,{method:'POST'});const d=await r.json();if(!r.ok)throw Error(d.detail||'Could not start session.');msg(`Session #${sessionId} is ACTIVE.`,true);$('startAttendanceBtn').disabled=true;$('endAttendanceBtn').disabled=false;refresh();}catch(e){msg(e.message);}}
+  async function end(){try{const r=await fetch(`/api/attendance/sessions/${sessionId}/end`,{method:'POST'});const d=await r.json();if(!r.ok)throw Error(d.detail||'Could not end session.');msg(`Session #${sessionId} ended.`,true);$('startAttendanceBtn').disabled=false;$('endAttendanceBtn').disabled=true;refresh();}catch(e){msg(e.message);}}
+  async function refresh(){if(!sessionId)return;try{const r=await fetch(`/api/attendance/sessions/${sessionId}/summary`);const d=await r.json();if(!r.ok)return;renderSummary(d);$('attendanceStatus').textContent=`Session #${d.session.id} · ${d.session.status} · ${d.session.classroom_id} · batch ${d.session.batch_id} · camera ${d.session.camera_id}`;}catch(_) {}}
+  async function audit(){if(!sessionId)return;const r=await fetch(`/api/attendance/sessions/${sessionId}/audit`);const d=await r.json();$('attendanceAudit').innerHTML='<strong>Audit Log</strong><br>'+((d.audit||[]).map(a=>`${esc(a.timestamp)} · ${esc(a.student_id)} · ${esc(a.old_status||'—')} → ${esc(a.new_status)} · ${esc(a.actor)} · ${esc(a.reason||'')}`).join('<br>')||'No audit events.');}
+  async function correct(){if(!sessionId){msg('Create a session first.');return;}try{const payload={session_id:sessionId,student_id:$('corrStudent').value.trim(),status:$('corrStatus').value,reason:$('corrReason').value.trim(),actor:$('corrActor').value.trim()||'admin'};if(!payload.student_id)throw Error('Student ID is required.');const r=await fetch('/api/attendance/correct',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.detail||'Correction failed.');msg('Attendance correction applied.',true);refresh();audit();}catch(e){msg(e.message);}}
+  $('createAttendanceBtn').onclick=create;$('startAttendanceBtn').onclick=start;$('endAttendanceBtn').onclick=end;$('refreshAttendanceBtn').onclick=refresh;$('loadAuditBtn').onclick=audit;$('correctAttendanceBtn').onclick=correct;
+  setInterval(refresh,1500);
 })();
 </script>
 </body>
