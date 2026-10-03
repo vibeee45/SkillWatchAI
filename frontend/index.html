@@ -200,6 +200,41 @@
         </table>
       </div>
     </section>
+
+    <section class="card" id="recognitionCard" style="margin-top:22px;">
+      <h2>Face Recognition</h2>
+      <div style="font-size:13px;color:#66737d;line-height:1.5;">
+        SFace compares detected faces with protected enrolled representations. Identity is confirmed only after multiple consistent frames; low-confidence matches remain Unknown.
+      </div>
+      <div class="student-grid" style="margin-top:12px;">
+        <div>
+          <label for="recognitionThreshold">Recognition Threshold</label>
+          <input id="recognitionThreshold" type="number" min="0" max="1" step="0.01" value="0.45" />
+        </div>
+        <div>
+          <label for="recognitionConfirmFrames">Confirmation Frames</label>
+          <input id="recognitionConfirmFrames" type="number" min="1" max="20" value="3" />
+        </div>
+        <div>
+          <label for="recognitionSwitchFrames">Switch Confirmation Frames</label>
+          <input id="recognitionSwitchFrames" type="number" min="1" max="20" value="3" />
+        </div>
+      </div>
+      <div class="student-actions">
+        <button class="primary" id="saveRecognitionConfigBtn">Apply Recognition Settings</button>
+        <button class="secondary" id="testRecognitionBtn">Test Current Frame</button>
+        <button class="secondary" id="resetRecognitionBtn">Reset Recognition State</button>
+      </div>
+      <div class="student-progress" id="recognitionStatusBox">Recognition status loading...</div>
+      <div class="student-message" id="recognitionMessage"></div>
+      <div class="student-list">
+        <strong>Latest Recognition Results</strong>
+        <table class="student-table" style="margin-top:10px;">
+          <thead><tr><th>Track</th><th>Student</th><th>Status</th><th>Similarity</th><th>Timestamp</th></tr></thead>
+          <tbody id="recognitionTableBody"><tr><td colspan="5">No recognition result yet.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
 <script>
@@ -535,6 +570,63 @@ loadSavedCameras();
   document.getElementById('refreshStudentsBtn').onclick=loadStudents;
   search.addEventListener('input',()=>{ clearTimeout(window.__studentSearchTimer); window.__studentSearchTimer=setTimeout(loadStudents,250); });
   setButtons(false); loadStudents();
+})();
+</script>
+<script>
+(function(){
+  const threshold=document.getElementById('recognitionThreshold');
+  const confirmFrames=document.getElementById('recognitionConfirmFrames');
+  const switchFrames=document.getElementById('recognitionSwitchFrames');
+  const statusBox=document.getElementById('recognitionStatusBox');
+  const message=document.getElementById('recognitionMessage');
+  const table=document.getElementById('recognitionTableBody');
+
+  function setMessage(text, ok=false){ message.textContent=text; message.style.color=ok ? '#16803c' : '#b42318'; }
+  function renderStatus(d){
+    threshold.value=Number(d.threshold ?? 0.45).toFixed(2);
+    confirmFrames.value=d.confirmation_frames ?? 3;
+    switchFrames.value=d.switch_confirmation_frames ?? 3;
+    statusBox.innerHTML=`<strong>SFace</strong> · threshold ${Number(d.threshold||0).toFixed(2)} · active identity tracks ${d.active_identity_tracks||0} · total recognitions ${d.total_recognitions||0} · confirmed ${d.confirmed_count||0} · unknown ${d.unknown_count||0} · last inference ${Number(d.last_inference_ms||0).toFixed(1)} ms`;
+    const results=d.last_results||[];
+    table.innerHTML='';
+    if(!results.length){ table.innerHTML='<tr><td colspan="5">No recognition result yet.</td></tr>'; return; }
+    results.forEach(r=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${r.track_id ?? '—'}</td><td>${escapeHtml(r.name || 'Unknown')}</td><td>${escapeHtml(r.status || 'unknown')}</td><td>${Number(r.similarity||0).toFixed(3)}</td><td>${r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : '—'}</td>`;
+      table.appendChild(tr);
+    });
+  }
+  function escapeHtml(v){ return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  async function refresh(){
+    try{ const r=await fetch('/api/recognition/status'); if(!r.ok) return; renderStatus(await r.json()); }catch(_){}
+  }
+  async function apply(){
+    setMessage('');
+    try{
+      const payload={threshold:Number(threshold.value),confirmation_frames:Number(confirmFrames.value),switch_confirmation_frames:Number(switchFrames.value)};
+      const r=await fetch('/api/recognition/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const d=await r.json(); if(!r.ok) throw new Error(d.detail||'Could not update recognition settings.');
+      renderStatus(d.status); setMessage(d.message,true);
+    }catch(e){setMessage(e.message);}
+  }
+  async function test(){
+    setMessage('Testing current camera frame...');
+    try{
+      const r=await fetch('/api/recognition/test',{method:'POST'}); const d=await r.json();
+      if(!r.ok) throw new Error(d.detail||'Recognition test failed.');
+      setMessage(`Detected ${d.face_count} face(s).`,true);
+      refresh();
+    }catch(e){setMessage(e.message);}
+  }
+  async function reset(){
+    try{ const r=await fetch('/api/recognition/reset',{method:'POST'}); const d=await r.json(); renderStatus(d.status); setMessage(d.message,true); }catch(e){setMessage(e.message);}
+  }
+  document.getElementById('saveRecognitionConfigBtn').onclick=apply;
+  document.getElementById('testRecognitionBtn').onclick=test;
+  document.getElementById('resetRecognitionBtn').onclick=reset;
+  refresh();
+  setInterval(refresh,1000);
 })();
 </script>
 </body>

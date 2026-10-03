@@ -22,6 +22,9 @@ class FaceDetection:
     brightness: float = 0.0
     blur_score: float = 0.0
     track_id: Optional[int] = None
+    # Complete YuNet row (bbox + 5 landmarks + confidence) for SFace alignment.
+    # Kept internal and intentionally omitted from as_dict().
+    model_row: Optional[np.ndarray] = None
 
     @property
     def bbox(self) -> list[int]:
@@ -62,7 +65,7 @@ class FaceDetector:
         top_k: int = 5000,
         min_face_size: int = 20,
         face_brightness_min: float = 20.0,
-        face_blur_threshold: float = 20.0,
+        face_blur_threshold: float = 8.0,
         track_iou_threshold: float = 0.25,
         max_missed_frames: int = 8,
     ):
@@ -206,7 +209,8 @@ class FaceDetector:
 
         if raw_faces is not None:
             for row in raw_faces:
-                x, y, w, h, confidence = [float(v) for v in row[:5]]
+                x, y, w, h = [float(v) for v in row[:4]]
+                confidence = float(row[14])
                 bbox = (int(round(x)), int(round(y)), int(round(w)), int(round(h)))
                 valid, reasons, brightness, blur_score = self._quality(frame, bbox)
                 detections.append(
@@ -217,6 +221,7 @@ class FaceDetector:
                         quality_reasons=reasons,
                         brightness=brightness,
                         blur_score=blur_score,
+                        model_row=np.asarray(row, dtype=np.float32).copy(),
                     )
                 )
 

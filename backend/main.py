@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -16,6 +17,7 @@ from face_attendance.processor import FaceDetectionProcessor
 from face_attendance.enrollment import EnrollmentService
 from face_attendance.protected_store import ProtectedRepresentationStore
 from face_attendance.recognizer import SFaceRecognizer
+from face_attendance.recognition import FaceRecognitionService
 from face_attendance.student_store import StudentStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
@@ -27,7 +29,7 @@ DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.4.0")
+app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.5.0")
 camera_manager = CameraManager()
 camera_store = CameraStore(DATA_DIR / "cameras.json")
 camera_lock = threading.Lock()
@@ -39,6 +41,16 @@ student_store = StudentStore(DATA_DIR / "students.db")
 representation_store = ProtectedRepresentationStore(DATA_DIR / ".face_key")
 sface_recognizer = SFaceRecognizer(BASE_DIR / "models" / "face_recognition_sface_2021dec.onnx")
 enrollment_service = EnrollmentService(face_detector, sface_recognizer)
+recognition_service = FaceRecognitionService(
+    student_store=student_store,
+    representation_store=representation_store,
+    recognizer=sface_recognizer,
+    log_path=DATA_DIR / "recognition_log.jsonl",
+    threshold=float(os.getenv("SKILLWATCH_RECOGNITION_THRESHOLD", "0.45")),
+    confirmation_frames=int(os.getenv("SKILLWATCH_RECOGNITION_CONFIRMATION_FRAMES", "3")),
+    switch_confirmation_frames=int(os.getenv("SKILLWATCH_RECOGNITION_SWITCH_FRAMES", "3")),
+    switch_margin=float(os.getenv("SKILLWATCH_RECOGNITION_SWITCH_MARGIN", "0.05")),
+)
 enrollment_sessions: dict[str, dict] = {}
 enrollment_lock = threading.Lock()
 
@@ -133,6 +145,13 @@ class EnrollmentStartRequest(BaseModel):
     consent_confirmed: bool = False
 
 
+class RecognitionConfigRequest(BaseModel):
+    threshold: float | None = None
+    confirmation_frames: int | None = None
+    switch_confirmation_frames: int | None = None
+    switch_margin: float | None = None
+
+
 @app.post("/api/students/enrollment/start")
 def start_enrollment(request: EnrollmentStartRequest):
     student_id = request.student_id.strip()
@@ -157,43 +176,25 @@ def start_enrollment(request: EnrollmentStartRequest):
 def capture_enrollment_sample(student_id: str):
     with enrollment_lock:
         session = enrollment_sessions.get(student_id)
-
     if not session:
-        raise HTTPException(
-            status_code=404,
-            detail="Start an enrollment session first."
-        )
-
+        raise HTTPException(status_code=404, detail="Start an enrollment session first.")
     if not camera_manager.is_connected:
-        raise HTTPException(
-            status_code=409,
-            detail="Connect a camera before capturing enrollment samples."
-        )
+        raise HTTPException(status_code=409, detail="Connect a camera before capturing enrollment samples.")
 
-    # IMPORTANT:
-    # Do NOT call VideoCapture.read() here.
-    # The live preview already owns the camera read loop.
-    # Enrollment consumes the latest cached frame instead.
+    # Do not call VideoCapture.read() here: the live MJPEG preview already owns
+    # the camera read loop. Consume its latest cached frame instead so enrollment
+    # cannot race the preview and turn the camera region black.
     success, packet = camera_manager.get_latest_frame_packet()
-
     if not success or packet is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Waiting for a live camera frame. Keep the preview connected and try again."
-        )
-
+        raise HTTPException(status_code=503, detail="Waiting for a live camera frame. Keep the preview connected and try again.")
     try:
         sample = enrollment_service.process_frame(packet.frame)
     except Exception as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     with enrollment_lock:
         session["samples"].append(sample)
         count = len(session["samples"])
-
     return {
         "message": f"Valid sample {count}/3 captured.",
         "student_id": student_id,
@@ -204,9 +205,7 @@ def capture_enrollment_sample(student_id: str):
             "brightness": round(sample.brightness, 2),
             "blur_score": round(sample.blur_score, 2),
         },
-        "sface_inference_ms": round(
-            sface_recognizer.last_inference_ms, 2
-        ),
+        "sface_inference_ms": round(sface_recognizer.last_inference_ms, 2),
     }
 
 
@@ -249,6 +248,61 @@ def delete_student(student_id: str):
     if not student_store.delete(student_id):
         raise HTTPException(status_code=404, detail="Student not found.")
     return {"message": "Student enrollment removed."}
+
+
+@app.get("/api/recognition/status")
+def recognition_status():
+    return recognition_service.status()
+
+
+@app.post("/api/recognition/config")
+def configure_recognition(request: RecognitionConfigRequest):
+    try:
+        return {"message": "Recognition configuration updated.", "status": recognition_service.configure(
+            threshold=request.threshold,
+            confirmation_frames=request.confirmation_frames,
+            switch_confirmation_frames=request.switch_confirmation_frames,
+            switch_margin=request.switch_margin,
+        )}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/recognition/reset")
+def reset_recognition():
+    recognition_service.reset()
+    return {"message": "Recognition state reset.", "status": recognition_service.status()}
+
+
+@app.get("/api/recognition/logs")
+def recognition_logs(limit: int = 50):
+    return {"logs": recognition_service.logger.recent(limit)}
+
+
+@app.post("/api/recognition/test")
+def recognition_test():
+    if not camera_manager.is_connected:
+        raise HTTPException(status_code=409, detail="Connect a camera first.")
+    success, packet = camera_manager.get_latest_frame_packet()
+    if not success or packet is None:
+        raise HTTPException(status_code=503, detail="No live camera frame available.")
+    detections = face_detector.detect(packet.frame)
+    try:
+        results = recognition_service.recognize(
+            packet.frame,
+            detections,
+            camera_id=packet.camera_id,
+            frame_id=f"{packet.camera_id or 'UNKNOWN'}-{packet.frame_number:08d}",
+            timestamp=packet.timestamp,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Recognition failed: {exc}") from exc
+    return {
+        "camera_id": packet.camera_id,
+        "room": packet.room,
+        "face_count": len(detections),
+        "results": [result.as_dict() for result in results],
+    }
 
 
 @app.get("/api/cameras")
@@ -358,13 +412,30 @@ def _annotate_face_detections(frame, ai_result):
         return frame
     output = frame.copy()
     detections = _map_face_boxes_to_original(output, ai_result.get("detections", []))
+    recognition_by_track = {
+        item.get("track_id"): item
+        for item in ai_result.get("recognition", [])
+        if item.get("track_id") is not None
+    }
     for x, y, w, h, confidence, track_id in detections:
         x = max(0, min(output.shape[1] - 1, x))
         y = max(0, min(output.shape[0] - 1, y))
         x2 = max(x + 1, min(output.shape[1] - 1, x + w))
         y2 = max(y + 1, min(output.shape[0] - 1, y + h))
+        recognition = recognition_by_track.get(track_id)
+        if recognition:
+            name = recognition.get("name") or "Unknown"
+            status = recognition.get("status", "unknown")
+            similarity = float(recognition.get("similarity", 0.0))
+            if status == "confirmed":
+                label = f"{name} | {similarity:.2f}"
+            elif status == "candidate":
+                label = f"Confirming: {name} | {similarity:.2f}"
+            else:
+                label = f"Unknown | {similarity:.2f}"
+        else:
+            label = f"Face {track_id or '-'} | {confidence:.2f}"
         cv2.rectangle(output, (x, y), (x2, y2), (0, 255, 0), 2)
-        label = f"Face {track_id or '-'} | {confidence:.2f}"
         cv2.putText(output, label, (x, max(18, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
     cv2.putText(output, f"Faces: {len(detections)}", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
     return output
@@ -381,7 +452,21 @@ def frame_generator():
             continue
         ai_frame = frame_pipeline.process(packet)
         if ai_frame is not None:
-            frame_pipeline.run_ai(ai_frame)
+            ai_result = frame_pipeline.run_ai(ai_frame)
+            try:
+                recognition_results = recognition_service.recognize(
+                    ai_frame.frame,
+                    face_detector.last_detections,
+                    camera_id=packet.camera_id,
+                    frame_id=ai_frame.frame_id,
+                    timestamp=ai_frame.timestamp,
+                )
+                ai_result["recognition"] = [result.as_dict() for result in recognition_results]
+            except Exception as exc:
+                logging.getLogger("skillwatch.recognition").warning("Recognition skipped: %s", exc)
+                ai_result["recognition"] = []
+                ai_result["recognition_error"] = str(exc)
+            frame_pipeline.last_ai_result = ai_result
         preview_frame = _annotate_face_detections(packet.frame, frame_pipeline.last_ai_result)
         ok, encoded = cv2.imencode(".jpg", preview_frame)
         if not ok:
