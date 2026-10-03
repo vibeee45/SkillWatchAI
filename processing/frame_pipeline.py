@@ -170,6 +170,7 @@ class FramePipeline:
         self.freeze_after_samples = max(1, freeze_after_samples)
         self.ai_processor = ai_processor or NoOpAIProcessor()
         self.stats = PipelineStats()
+        self.last_ai_result: Optional[dict[str, Any]] = None
         self._last_gray: Optional[np.ndarray] = None
         self._same_frame_count = 0
 
@@ -295,6 +296,7 @@ class FramePipeline:
     def run_ai(self, ai_frame: AIFrame) -> dict[str, Any]:
         started = time.perf_counter()
         result = self.ai_processor.process(ai_frame)
+        self.last_ai_result = result
         ai_latency_ms = (time.perf_counter() - started) * 1000.0
         result["ai_latency_ms"] = round(ai_latency_ms, 3)
         return result
@@ -306,9 +308,11 @@ class FramePipeline:
             "target_height": self.target_height,
             "resize_mode": self.resize_mode,
             "stats": self.stats.as_dict(),
+            "last_ai_result": self.last_ai_result,
         }
 
     def reset(self) -> None:
         self.stats = PipelineStats()
+        self.last_ai_result: Optional[dict[str, Any]] = None
         self._last_gray = None
         self._same_frame_count = 0

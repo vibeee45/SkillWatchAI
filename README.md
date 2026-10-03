@@ -93,3 +93,7 @@ Phase 1 foundation only. AI and camera implementations are intentionally left fo
 
 ## Phase 3
 Phase 3 adds frame sampling, inference resizing, frame metadata, image-quality checks, FPS/latency metrics, and a common AIProcessor interface. See PHASE_3_COMPLETE_CHECKLIST.md.
+
+## Phase 4 — Face Detection
+
+Phase 4 adds local YuNet face detection, confidence scores, bounding boxes, face-quality checks, multiple-face support, and lightweight IoU tracking. Face detection is local and does not perform identity recognition.

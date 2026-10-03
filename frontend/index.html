@@ -336,5 +336,33 @@ loadSavedCameras();
   setInterval(updatePipelineStatus, 1000);
 })();
 </script>
+<script>
+(function(){
+  async function updateFaceStatus(){
+    try {
+      const r = await fetch('/api/face/status');
+      if (!r.ok) return;
+      const d = await r.json();
+      let el = document.getElementById('phase4-face-status');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'phase4-face-status';
+        el.style.cssText = 'margin:12px 0 0;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;';
+        document.body.appendChild(el);
+      }
+      const detections = d.detections || [];
+      const modelState = d.loaded ? 'loaded' : 'not loaded';
+      el.innerHTML = '<strong>Face Detection</strong><br>' +
+        'Model: YuNet (' + modelState + ') · ' +
+        'Faces: ' + detections.length + ' · ' +
+        'Active tracks: ' + (d.active_tracks || 0) + ' · ' +
+        'Inference: ' + (d.last_inference_ms || 0) + ' ms' +
+        (d.last_error ? '<br><span style="color:#b42318">' + d.last_error + '</span>' : '');
+    } catch (_) {}
+  }
+  updateFaceStatus();
+  setInterval(updateFaceStatus, 1000);
+})();
+</script>
 </body>
 </html>

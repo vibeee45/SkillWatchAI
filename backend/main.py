@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from camera.camera_manager import CameraManager
 from camera.camera_store import CameraStore
 from processing.frame_pipeline import FramePipeline
+from face_attendance.face_detector import FaceDetector
+from face_attendance.processor import FaceDetectionProcessor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
@@ -25,7 +27,9 @@ app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring 
 camera_manager = CameraManager()
 camera_store = CameraStore(DATA_DIR / "cameras.json")
 camera_lock = threading.Lock()
-frame_pipeline = FramePipeline(sample_every_n=3, target_width=640, target_height=360)
+face_detector = FaceDetector(BASE_DIR / "models" / "face_detection_yunet_2023mar.onnx", confidence_threshold=0.6)
+face_processor = FaceDetectionProcessor(face_detector)
+frame_pipeline = FramePipeline(sample_every_n=3, target_width=640, target_height=360, ai_processor=face_processor)
 
 
 class CameraConnectRequest(BaseModel):
@@ -64,6 +68,17 @@ def health():
 @app.get("/api/camera/status")
 def camera_status():
     return camera_manager.get_status()
+
+
+@app.get("/api/face/status")
+def face_status():
+    return face_detector.status()
+
+
+@app.post("/api/face/reset")
+def face_reset():
+    face_detector.reset()
+    return {"message": "Face detector metrics reset.", "status": face_detector.status()}
 
 
 @app.get("/api/pipeline/status")
@@ -157,6 +172,46 @@ def disconnect_camera():
     return {"message": "Camera disconnected.", "status": camera_manager.get_status()}
 
 
+def _map_face_boxes_to_original(frame, detections):
+    """Map boxes from the 640x360 fit canvas back to the original frame."""
+    if frame is None or not detections:
+        return []
+    h, w = frame.shape[:2]
+    tw, th = frame_pipeline.target_width, frame_pipeline.target_height
+    scale = min(tw / max(w, 1), th / max(h, 1))
+    nw = max(1, int(round(w * scale)))
+    nh = max(1, int(round(h * scale)))
+    pad_x = (tw - nw) // 2
+    pad_y = (th - nh) // 2
+    mapped = []
+    for d in detections:
+        x, y, bw, bh = d["bbox"]
+        ox = int(round((x - pad_x) / scale))
+        oy = int(round((y - pad_y) / scale))
+        ow = int(round(bw / scale))
+        oh = int(round(bh / scale))
+        if ow > 0 and oh > 0:
+            mapped.append((ox, oy, ow, oh, d.get("confidence", 0.0), d.get("track_id")))
+    return mapped
+
+
+def _annotate_face_detections(frame, ai_result):
+    if not ai_result or ai_result.get("processor") != "face_detection":
+        return frame
+    output = frame.copy()
+    detections = _map_face_boxes_to_original(output, ai_result.get("detections", []))
+    for x, y, w, h, confidence, track_id in detections:
+        x = max(0, min(output.shape[1] - 1, x))
+        y = max(0, min(output.shape[0] - 1, y))
+        x2 = max(x + 1, min(output.shape[1] - 1, x + w))
+        y2 = max(y + 1, min(output.shape[0] - 1, y + h))
+        cv2.rectangle(output, (x, y), (x2, y2), (0, 255, 0), 2)
+        label = f"Face {track_id or '-'} | {confidence:.2f}"
+        cv2.putText(output, label, (x, max(18, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+    cv2.putText(output, f"Faces: {len(detections)}", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+    return output
+
+
 def frame_generator():
     while True:
         if not camera_manager.is_connected:
@@ -169,7 +224,8 @@ def frame_generator():
         ai_frame = frame_pipeline.process(packet)
         if ai_frame is not None:
             frame_pipeline.run_ai(ai_frame)
-        ok, encoded = cv2.imencode(".jpg", packet.frame)
+        preview_frame = _annotate_face_detections(packet.frame, frame_pipeline.last_ai_result)
+        ok, encoded = cv2.imencode(".jpg", preview_frame)
         if not ok:
             continue
         yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + encoded.tobytes() + b"\r\n"
