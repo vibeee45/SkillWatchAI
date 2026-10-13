@@ -1,9 +1,14 @@
 from pathlib import Path
 import cv2
-
-from face_attendance.face_detector import FaceDetector
+import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from face_attendance.face_detector import FaceDetector
+
 MODEL = ROOT / "models" / "face_detection_yunet_2023mar.onnx"
 
 

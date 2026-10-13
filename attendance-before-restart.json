@@ -1,0 +1,39 @@
+﻿{
+    "session":  {
+                    "id":  14,
+                    "classroom_id":  "ROOM-01",
+                    "batch_id":  "abc",
+                    "session_date":  "2026-10-13",
+                    "start_time":  "13:49",
+                    "end_time":  "13:50",
+                    "camera_id":  "CAM-001",
+                    "status":  "ACTIVE",
+                    "created_at":  "2026-10-13T08:20:41.042015+00:00",
+                    "started_at":  "2026-10-13T08:20:42.124733+00:00",
+                    "ended_at":  null
+                },
+    "total_students":  1,
+    "present_count":  1,
+    "absent_count":  0,
+    "attendance_percentage":  100.0,
+    "records":  [
+                    {
+                        "id":  4,
+                        "session_id":  14,
+                        "student_id":  "dssd",
+                        "status":  "PRESENT",
+                        "check_in_time":  "2026-10-13T08:20:42.261671+00:00",
+                        "confidence":  0.7893,
+                        "camera_id":  "CAM-001",
+                        "source":  "AUTO",
+                        "updated_at":  "2026-10-13T08:20:42.261671+00:00"
+                    }
+                ],
+    "students":  [
+                     {
+                         "student_id":  "dssd",
+                         "name":  "viee",
+                         "status":  "PRESENT"
+                     }
+                 ]
+}

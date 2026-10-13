@@ -1,0 +1,15 @@
+﻿{
+    "audit":  [
+                  {
+                      "id":  5,
+                      "attendance_id":  4,
+                      "session_id":  14,
+                      "student_id":  "dssd",
+                      "old_status":  null,
+                      "new_status":  "PRESENT",
+                      "reason":  "Automatic confirmed recognition",
+                      "actor":  "SYSTEM",
+                      "timestamp":  "2026-10-13T08:20:42.261671+00:00"
+                  }
+              ]
+}

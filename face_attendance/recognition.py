@@ -212,6 +212,14 @@ class FaceRecognitionService:
 
         self.last_inference_ms = 0.0
         self.last_error: str | None = None
+        # Diagnostics expose why an enrolled representation could not be loaded.
+        self.enrollment_diagnostics: dict[str, Any] = {
+            "database_students": 0,
+            "loaded_representations": 0,
+            "skipped_students": [],
+            "representation_dimensions": {},
+        }
+        self.last_pipeline_debug: dict[str, Any] = {}
 
     # ========================================================
     # HELPERS
@@ -235,34 +243,41 @@ class FaceRecognitionService:
 
     def _load_enrolled_students(self) -> list[dict[str, Any]]:
         students: list[dict[str, Any]] = []
+        public_students = self.student_store.list()
+        skipped: list[dict[str, str]] = []
+        dimensions: dict[str, int] = {}
 
-        for public_student in self.student_store.list():
-            full = self.student_store.get_with_representation(
-                public_student["student_id"]
-            )
-
-            if not full:
-                continue
-
-            token = full.get("representation")
-
-            if not token:
-                continue
-
+        for public_student in public_students:
+            student_id = str(public_student.get("student_id", "<missing-id>"))
             try:
-                vector = self.representation_store.reveal(
-                    token
-                )
+                full = self.student_store.get_with_representation(student_id)
+                if not full:
+                    skipped.append({"student_id": student_id, "reason": "student_record_missing"})
+                    continue
 
+                token = full.get("representation")
+                if not token:
+                    skipped.append({"student_id": student_id, "reason": "representation_missing"})
+                    continue
+
+                vector = self.representation_store.reveal(token)
                 vector = self._normalize(vector)
+                dimensions[student_id] = int(vector.size)
+                full["_vector"] = vector
+                students.append(full)
+            except Exception as exc:
+                # Don't silently discard a student: this was masking decryption/key issues.
+                skipped.append({
+                    "student_id": student_id,
+                    "reason": f"{type(exc).__name__}: {str(exc)[:180]}",
+                })
 
-            except Exception:
-                continue
-
-            full["_vector"] = vector
-
-            students.append(full)
-
+        self.enrollment_diagnostics = {
+            "database_students": len(public_students),
+            "loaded_representations": len(students),
+            "skipped_students": skipped,
+            "representation_dimensions": dimensions,
+        }
         return students
 
     @staticmethod
@@ -855,13 +870,27 @@ class FaceRecognitionService:
                 # Process each detected face
                 # --------------------------------------------
 
+                frame_debug: list[dict[str, Any]] = []
                 for detection in detections:
+                    debug_item: dict[str, Any] = {
+                        "track_id": detection.track_id,
+                        "bbox": detection.bbox,
+                        "quality_valid": bool(detection.quality_valid),
+                        "quality_reasons": list(detection.quality_reasons),
+                        "model_row_size": int(detection.model_row.size) if detection.model_row is not None else None,
+                        "enrolled_representations_loaded": len(students),
+                        "feature_dimension": None,
+                        "best_candidate_id": None,
+                        "raw_similarity": None,
+                        "branch": None,
+                    }
 
                     # ========================================
                     # LOW QUALITY
                     # ========================================
 
                     if not detection.quality_valid:
+                        debug_item["branch"] = "low_quality"
 
                         # IMPORTANT:
                         # Do NOT directly return unknown.
@@ -884,6 +913,7 @@ class FaceRecognitionService:
                     # ========================================
 
                     elif not students:
+                        debug_item["branch"] = "no_enrolled_representations_loaded"
 
                         result = (
                             self._apply_temporal_confirmation(
@@ -902,6 +932,7 @@ class FaceRecognitionService:
                     # ========================================
 
                     elif detection.model_row is None:
+                        debug_item["branch"] = "missing_yunet_landmarks"
 
                         result = (
                             self._apply_temporal_confirmation(
@@ -921,12 +952,14 @@ class FaceRecognitionService:
 
                     else:
 
+                        debug_item["branch"] = "sface_compare"
                         feature = (
                             self.recognizer.extract(
                                 frame,
                                 detection.model_row,
                             )
                         )
+                        debug_item["feature_dimension"] = int(np.asarray(feature).size)
 
                         candidate, similarity = (
                             self._match(
@@ -934,6 +967,9 @@ class FaceRecognitionService:
                                 students,
                             )
                         )
+
+                        debug_item["best_candidate_id"] = candidate.get("student_id") if candidate else None
+                        debug_item["raw_similarity"] = round(float(similarity), 6)
 
                         # ------------------------------------
                         # Below threshold
@@ -976,6 +1012,9 @@ class FaceRecognitionService:
                     # SAVE RESULT
                     # ========================================
 
+                    debug_item["result_reason"] = result.reason
+                    debug_item["result_status"] = result.status
+                    frame_debug.append(debug_item)
                     results.append(result)
 
                     self.total_recognitions += 1
@@ -1020,6 +1059,13 @@ class FaceRecognitionService:
                     )
 
                 self.last_results = results
+                self.last_pipeline_debug = {
+                    "face_count": len(detections),
+                    "detections": frame_debug,
+                    "enrollment": self.enrollment_diagnostics,
+                    "sface_loaded": bool(self.recognizer.loaded),
+                    "sface_model_error": self.recognizer.last_error,
+                }
 
             self.last_error = None
 

@@ -20,6 +20,8 @@ from face_attendance.recognizer import SFaceRecognizer
 from face_attendance.recognition import FaceRecognitionService
 from face_attendance.student_store import StudentStore
 from face_attendance.attendance import AttendanceStore
+from detection.person_detector import LightweightPersonDetector
+from detection.occupancy import OccupancyService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
@@ -30,7 +32,7 @@ DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.5.0")
+app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.6.0")
 camera_manager = CameraManager()
 camera_store = CameraStore(DATA_DIR / "cameras.json")
 camera_lock = threading.Lock()
@@ -43,6 +45,16 @@ representation_store = ProtectedRepresentationStore(DATA_DIR / ".face_key")
 sface_recognizer = SFaceRecognizer(BASE_DIR / "models" / "face_recognition_sface_2021dec.onnx")
 enrollment_service = EnrollmentService(face_detector, sface_recognizer)
 attendance_store = AttendanceStore(DATA_DIR / "attendance.db")
+person_detector = LightweightPersonDetector(
+    BASE_DIR / "models" / "yolov8n.onnx",
+    confidence_threshold=float(
+        os.getenv("SKILLWATCH_PERSON_CONFIDENCE", "0.25")
+    ),
+    nms_threshold=float(
+        os.getenv("SKILLWATCH_PERSON_NMS", "0.45")
+    ),
+)
+occupancy_service = OccupancyService(history_size=int(os.getenv("SKILLWATCH_OCCUPANCY_SMOOTHING_FRAMES", "5")))
 
 recognition_service = FaceRecognitionService(
     student_store=student_store,
@@ -84,6 +96,10 @@ class AttendanceCorrectionRequest(BaseModel):
     status: str
     reason: str = ""
     actor: str = "admin"
+
+
+class OccupancyZoneRequest(BaseModel):
+    zones: list[dict]
 
 
 class CameraConnectRequest(BaseModel):
@@ -331,8 +347,20 @@ def recognition_test():
     return {
         "camera_id": packet.camera_id,
         "room": packet.room,
+        "frame_number": packet.frame_number,
+        "frame_shape": list(packet.frame.shape),
         "face_count": len(detections),
+        "face_detections": [
+            {
+                **detection.as_dict(),
+                "model_row_size": int(detection.model_row.size) if detection.model_row is not None else None,
+            }
+            for detection in detections
+        ],
         "results": [result.as_dict() for result in results],
+        "recognition_diagnostics": recognition_service.status().get("diagnostics", {}),
+        "enrollment_diagnostics": recognition_service.status().get("enrollment_diagnostics", {}),
+        "sface_status": sface_recognizer.status(),
     }
 
 
@@ -473,6 +501,85 @@ def _annotate_face_detections(frame, ai_result):
 
 
 
+@app.get("/api/occupancy/status")
+def occupancy_status():
+    return {
+        "detector": person_detector.status(),
+        "occupancy": occupancy_service.status(),
+    }
+
+
+@app.post("/api/occupancy/reset")
+def occupancy_reset():
+    person_detector.reset()
+    occupancy_service.reset()
+    return {"message": "Occupancy state reset.", "status": occupancy_service.status()}
+
+
+@app.get("/api/occupancy/zones")
+def occupancy_zones():
+    return {"zones": [z.as_dict() for z in occupancy_service.zones]}
+
+
+@app.post("/api/occupancy/zones")
+def occupancy_zones_update(request: OccupancyZoneRequest):
+    try:
+        zones = occupancy_service.set_zones(request.zones)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid zone configuration: {exc}") from exc
+    return {"zones": zones}
+
+
+def _map_person_boxes_to_original(frame, detections):
+    if frame is None or not detections:
+        return []
+    h, w = frame.shape[:2]
+    tw, th = frame_pipeline.target_width, frame_pipeline.target_height
+    scale = min(tw / max(w, 1), th / max(h, 1))
+    nw = max(1, int(round(w * scale)))
+    nh = max(1, int(round(h * scale)))
+    pad_x = (tw - nw) // 2
+    pad_y = (th - nh) // 2
+    mapped = []
+    for d in detections:
+        x, y, bw, bh = d["bbox"]
+        ox = int(round((x - pad_x) / scale))
+        oy = int(round((y - pad_y) / scale))
+        ow = int(round(bw / scale))
+        oh = int(round(bh / scale))
+        mapped.append((ox, oy, ow, oh, d.get("track_id"), d.get("zone")))
+    return mapped
+
+
+def _annotate_person_detections(frame, ai_result):
+    if not ai_result:
+        return frame
+    occupancy = ai_result.get("occupancy") or {}
+    detections = occupancy.get("detections", [])
+    if not detections:
+        return frame
+    output = frame.copy()
+    for x, y, w, h, track_id, zone in _map_person_boxes_to_original(output, detections):
+        x = max(0, min(output.shape[1] - 1, x))
+        y = max(0, min(output.shape[0] - 1, y))
+        x2 = max(x + 1, min(output.shape[1] - 1, x + w))
+        y2 = max(y + 1, min(output.shape[0] - 1, y + h))
+        cv2.rectangle(output, (x, y), (x2, y2), (255, 180, 0), 2)
+        label = f"Person #{track_id or '-'}" + (f" | {zone}" if zone else "")
+        cv2.putText(output, label, (x, min(output.shape[0] - 5, y2 + 16)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 180, 0), 1, cv2.LINE_AA)
+    cv2.putText(
+        output,
+        f"Occupancy: {occupancy.get('total_occupancy', 0)} | Recognized: {occupancy.get('recognized_students', 0)} | Unknown: {occupancy.get('unknown_persons', 0)}",
+        (10, output.shape[0] - 12),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (255, 180, 0),
+        2,
+        cv2.LINE_AA,
+    )
+    return output
+
+
 @app.get("/api/attendance/classrooms")
 def attendance_classrooms():
     return {"classrooms": attendance_store.list_classrooms()}
@@ -564,7 +671,11 @@ def frame_generator():
         ai_frame = frame_pipeline.process(packet)
         if ai_frame is not None:
             ai_result = frame_pipeline.run_ai(ai_frame)
+            recognition_results = []
             try:
+                # Phase 8: person detection and tracking on the same standardized
+                # 640x360 frame used by the face pipeline.
+                person_detections = person_detector.detect(ai_frame.frame)
                 recognition_results = recognition_service.recognize(
                     ai_frame.frame,
                     face_detector.last_detections,
@@ -572,7 +683,15 @@ def frame_generator():
                     frame_id=ai_frame.frame_id,
                     timestamp=ai_frame.timestamp,
                 )
-                ai_result["recognition"] = [result.as_dict() for result in recognition_results]
+                recognition_dicts = [result.as_dict() for result in recognition_results]
+                ai_result["recognition"] = recognition_dicts
+                ai_result["occupancy"] = occupancy_service.process(
+                    person_detections,
+                    recognition_dicts,
+                    face_detector.last_detections,
+                    ai_frame.frame.shape[1],
+                    ai_frame.frame.shape[0],
+                )
                 active_session = attendance_store.active_session_for_camera(packet.camera_id)
                 if active_session:
                     auto_attendance = []
@@ -588,11 +707,13 @@ def frame_generator():
                 else:
                     ai_result["attendance"] = []
             except Exception as exc:
-                logging.getLogger("skillwatch.recognition").warning("Recognition skipped: %s", exc)
-                ai_result["recognition"] = []
-                ai_result["recognition_error"] = str(exc)
+                logging.getLogger("skillwatch.ai").warning("Occupancy/recognition skipped: %s", exc)
+                ai_result["recognition"] = [result.as_dict() for result in recognition_results]
+                ai_result["occupancy"] = occupancy_service.status()
+                ai_result["ai_error"] = str(exc)
             frame_pipeline.last_ai_result = ai_result
-        preview_frame = _annotate_face_detections(packet.frame, frame_pipeline.last_ai_result)
+        preview_frame = _annotate_person_detections(packet.frame, frame_pipeline.last_ai_result)
+        preview_frame = _annotate_face_detections(preview_frame, frame_pipeline.last_ai_result)
         ok, encoded = cv2.imencode(".jpg", preview_frame)
         if not ok:
             continue
