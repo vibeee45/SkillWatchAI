@@ -33,6 +33,13 @@ class CameraManager:
         self._latest_frame = None
         self.last_success_monotonic: Optional[float] = None
         self.frame_count = 0
+        self._previous_probe = None
+        self.frozen_frame_count = 0
+        self._poor_quality_count = 0
+        self.frame_quality = {"state": "unknown", "brightness": None, "sharpness": None}
+        self.frozen_frame_limit = 45
+        self.poor_quality_frame_limit = 5
+        self.heartbeat_timeout_seconds = max(5.0, reconnect_interval * 2.0)
         self._fps_window_start = time.monotonic()
         self._fps_window_frames = 0
         self.actual_fps = 0.0
@@ -95,7 +102,13 @@ class CameraManager:
             self.last_error = None
             self.consecutive_failures = 0
             self.reconnect_attempts = 0
+            self.last_success_monotonic = None
+            self.last_frame_at = None
             self.frame_count = 0
+            self._previous_probe = None
+            self.frozen_frame_count = 0
+            self._poor_quality_count = 0
+            self.frame_quality = {"state": "unknown", "brightness": None, "sharpness": None}
             self.actual_fps = 0.0
             self._fps_window_start = time.monotonic()
             self._fps_window_frames = 0
@@ -117,7 +130,7 @@ class CameraManager:
             return False
         return self._set_capture(cv2.VideoCapture(file_path), file_path, "file", camera_id, room)
 
-    def _mark_frame_success(self):
+    def _mark_frame_success(self, frame=None):
         now = time.monotonic()
         self.last_success_monotonic = now
         self.last_frame_at = datetime.now(timezone.utc).isoformat()
@@ -129,8 +142,51 @@ class CameraManager:
             self._fps_window_start = now
             self._fps_window_frames = 0
         self.consecutive_failures = 0
-        self.health = "healthy"
         self.last_error = None
+
+        # Detect a truly frozen feed and persist lightweight image-quality metrics.
+        # A tiny grayscale probe avoids hashing/retaining full-resolution frames.
+        if frame is not None:
+            try:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                analysis_gray = cv2.resize(gray, (min(320, gray.shape[1]), min(180, gray.shape[0])), interpolation=cv2.INTER_AREA)
+                probe = cv2.resize(analysis_gray, (32, 18), interpolation=cv2.INTER_AREA)
+                if self._previous_probe is not None:
+                    difference = float(cv2.absdiff(probe, self._previous_probe).mean())
+                    self.frozen_frame_count = self.frozen_frame_count + 1 if difference < 0.05 else 0
+                self._previous_probe = probe
+                brightness = float(analysis_gray.mean())
+                sharpness = float(cv2.Laplacian(analysis_gray, cv2.CV_64F).var())
+                if brightness < 18.0:
+                    quality_state = "low_light"
+                elif brightness > 238.0:
+                    quality_state = "overexposed"
+                elif sharpness < 5.0:
+                    quality_state = "blurry"
+                else:
+                    quality_state = "good"
+                self.frame_quality = {
+                    "state": quality_state,
+                    "brightness": round(brightness, 2),
+                    "sharpness": round(sharpness, 2),
+                }
+                self._poor_quality_count = self._poor_quality_count + 1 if quality_state != "good" else 0
+            except Exception as exc:
+                self.frame_quality = {"state": "unavailable", "brightness": None, "sharpness": None}
+                self.last_error = f"Frame quality analysis failed: {exc}"
+
+        if self.frozen_frame_count >= self.frozen_frame_limit:
+            self.health = "frozen"
+            self.last_error = f"Camera feed appears frozen ({self.frozen_frame_count} unchanged frames)."
+            self.is_connected = False
+            if self.capture:
+                self.capture.release()
+                self.capture = None
+        elif self._poor_quality_count >= self.poor_quality_frame_limit:
+            self.health = "poor_quality"
+            self.last_error = f"Camera image quality is poor: {self.frame_quality.get('state', 'unknown')}."
+        else:
+            self.health = "healthy"
 
     def _mark_frame_failure(self, error: str):
         self.consecutive_failures += 1
@@ -150,7 +206,7 @@ class CameraManager:
             if not success:
                 self._mark_frame_failure("Frame read failed.")
                 return False, None
-            self._mark_frame_success()
+            self._mark_frame_success(frame)
             # Keep one latest frame so other consumers (enrollment, snapshots,
             # APIs) do not call VideoCapture.read() concurrently with the live stream.
             self._latest_frame = frame.copy()
@@ -199,7 +255,7 @@ class CameraManager:
 
     def _attempt_reconnect(self):
         with self._lock:
-            if self.source_type not in self.LIVE_SOURCES or not self.source:
+            if self.source_type not in self.LIVE_SOURCES or self.source is None or self.source == "":
                 return
             if self.max_reconnect_attempts and self.reconnect_attempts >= self.max_reconnect_attempts:
                 return
@@ -212,7 +268,9 @@ class CameraManager:
         try:
             capture = self._open_device(int(source)) if source_type == "device" else self._open_rtsp(str(source))
             if self._set_capture(capture, source, source_type, camera_id, room):
-                self.last_error = None
+                with self._lock:
+                    self.reconnect_attempts = attempt
+                    self.last_error = None
             else:
                 self.last_error = f"Reconnect attempt {attempt} failed."
         except Exception as exc:
@@ -221,6 +279,15 @@ class CameraManager:
     def _monitor_loop(self):
         while not self._stop_event.wait(self.reconnect_interval):
             with self._lock:
+                if (self.source_type in self.LIVE_SOURCES and self.is_connected
+                        and self.last_success_monotonic is not None
+                        and time.monotonic() - self.last_success_monotonic > self.heartbeat_timeout_seconds):
+                    self.is_connected = False
+                    self.health = "offline"
+                    self.last_error = "Camera heartbeat timed out; attempting reconnection."
+                    if self.capture:
+                        self.capture.release()
+                        self.capture = None
                 should_reconnect = self.source_type in self.LIVE_SOURCES and not self.is_connected and self.source is not None
             if should_reconnect:
                 self._attempt_reconnect()
@@ -229,9 +296,15 @@ class CameraManager:
         with self._lock:
             width, height = self.get_resolution()
             configured_fps = self.get_fps()
+            frame_age = (max(0.0, time.monotonic() - self.last_success_monotonic)
+                         if self.last_success_monotonic is not None else None)
             return {
                 "connected": self.is_connected,
                 "health": self.health,
+                "frame_age_seconds": round(frame_age, 2) if frame_age is not None else None,
+                "heartbeat_timeout_seconds": self.heartbeat_timeout_seconds,
+                "frozen_frame_count": self.frozen_frame_count,
+                "frame_quality": dict(self.frame_quality),
                 "camera_id": self.camera_id or self.last_camera_id,
                 "room": self.room or self.last_room,
                 "source_type": self.source_type or self.last_source_type,

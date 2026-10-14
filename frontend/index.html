@@ -145,7 +145,13 @@
           <span id="resolution">Resolution: —</span>
           <span id="fps">FPS: —</span>
           <span id="sourceLabel">Source: —</span>
-          <span id="roomLabel">Room: —</span><span id="healthLabel">Health: —</span><span id="lastFrame">Last frame: —</span><span id="reconnectLabel">Reconnects: 0</span>
+          <span id="roomLabel">Room: —</span><span id="healthLabel">Health: —</span><span id="lastFrame">Last frame: —</span><span id="frameAgeLabel">Frame age: —</span><span id="qualityLabel">Image quality: —</span><span id="reconnectLabel">Reconnects: 0</span>
+        </div>
+        <div class="meta" style="margin-top:10px;padding:10px;background:#f5f7fa;border-radius:8px;">
+          <strong>Offline event queue</strong>
+          <span id="offlineQueueLabel">Checking local queue…</span>
+          <span id="offlineSyncLabel">Remote sync: not checked</span>
+          <button id="syncNowBtn" type="button" style="padding:6px 10px;">Sync queued events</button>
         </div>
       </section>
     </div>
@@ -329,30 +335,18 @@ function setStatus(status) {
   disconnectBtn.disabled = !connected;
   connectBtn.disabled = connected;
 
-  if (connected) {
-    stream.style.display = "block";
-    placeholder.style.display = "none";
-    document.getElementById("resolution").textContent =
-      `Resolution: ${status.width || 0} × ${status.height || 0}`;
-    document.getElementById("fps").textContent =
-      `FPS: ${Number(status.fps || 0).toFixed(1)}`;
-    document.getElementById("sourceLabel").textContent =
-      `Source: ${status.source_type || "—"}`;
-    document.getElementById("roomLabel").textContent = `Room: ${status.room || "—"}`;
-    document.getElementById("healthLabel").textContent = `Health: ${status.health || "—"}`;
-    document.getElementById("lastFrame").textContent = `Last frame: ${status.last_frame_at ? new Date(status.last_frame_at).toLocaleTimeString() : "—"}`;
-    document.getElementById("reconnectLabel").textContent = `Reconnects: ${status.reconnect_attempts || 0}`;
-  } else {
-    stream.style.display = "none";
-    placeholder.style.display = "block";
-    document.getElementById("resolution").textContent = "Resolution: —";
-    document.getElementById("fps").textContent = "FPS: —";
-    document.getElementById("sourceLabel").textContent = "Source: —";
-    document.getElementById("roomLabel").textContent = "Room: —";
-    document.getElementById("healthLabel").textContent = "Health: —";
-    document.getElementById("lastFrame").textContent = "Last frame: —";
-    document.getElementById("reconnectLabel").textContent = "Reconnects: 0";
-  }
+  stream.style.display = connected ? "block" : "none";
+  placeholder.style.display = connected ? "none" : "block";
+  document.getElementById("resolution").textContent = connected ? `Resolution: ${status.width || 0} × ${status.height || 0}` : "Resolution: —";
+  document.getElementById("fps").textContent = connected ? `FPS: ${Number(status.actual_fps || status.fps || 0).toFixed(1)}` : "FPS: —";
+  document.getElementById("sourceLabel").textContent = `Source: ${status.source_type || "—"}`;
+  document.getElementById("roomLabel").textContent = `Room: ${status.room || "—"}`;
+  document.getElementById("healthLabel").textContent = `Health: ${status.health || "—"}`;
+  document.getElementById("lastFrame").textContent = `Last frame: ${status.last_frame_at ? new Date(status.last_frame_at).toLocaleTimeString() : "—"}`;
+  document.getElementById("frameAgeLabel").textContent = `Frame age: ${status.frame_age_seconds == null ? "—" : `${Number(status.frame_age_seconds).toFixed(1)}s`}`;
+  const quality = status.frame_quality || {};
+  document.getElementById("qualityLabel").textContent = `Image quality: ${quality.state || "—"}${quality.sharpness == null ? "" : ` (sharpness ${quality.sharpness})`}`;
+  document.getElementById("reconnectLabel").textContent = `Reconnects: ${status.reconnect_attempts || 0}`;
 }
 
 async function connectCamera() {
@@ -438,6 +432,40 @@ connectBtn.addEventListener("click", connectCamera);
 disconnectBtn.addEventListener("click", disconnectCamera);
 refreshStatus();
 setInterval(refreshStatus, 3000);
+
+async function refreshOfflineStatus() {
+  try {
+    const response = await fetch("/api/offline/status", {cache: "no-store"});
+    const data = await response.json();
+    const q = data.queue || {};
+    document.getElementById("offlineQueueLabel").textContent = `Pending: ${q.pending || 0} · Syncing: ${q.syncing || 0} · Synced: ${q.synced || 0} · Failed: ${q.failed || 0}`;
+    const sync = data.sync || {};
+    document.getElementById("offlineSyncLabel").textContent = sync.configured
+      ? `Remote sync: configured${sync.last_error ? ` · Last error: ${sync.last_error}` : ""}`
+      : "Remote sync: not configured (events remain local)";
+  } catch (_) {
+    document.getElementById("offlineQueueLabel").textContent = "Local backend status unavailable";
+  }
+}
+
+document.getElementById("syncNowBtn")?.addEventListener("click", async () => {
+  const button = document.getElementById("syncNowBtn");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/offline/sync", {method: "POST"});
+    const result = await response.json();
+    document.getElementById("offlineSyncLabel").textContent = result.configured
+      ? `Sync attempt: ${result.synced || 0} sent, ${result.failed || 0} failed`
+      : "Remote sync not configured; events kept locally";
+    await refreshOfflineStatus();
+  } catch (_) {
+    document.getElementById("offlineSyncLabel").textContent = "Sync request failed; queued events are retained";
+  } finally {
+    button.disabled = false;
+  }
+});
+refreshOfflineStatus();
+setInterval(refreshOfflineStatus, 5000);
 
 const saveBtn = document.getElementById("saveBtn");
 const loadBtn = document.getElementById("loadBtn");

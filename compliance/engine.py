@@ -313,7 +313,7 @@ class ComplianceEngine:
 
             # Camera health and frame freshness.
             camera = context.get("camera") or {}
-            camera_bad = not camera.get("connected", False) or str(camera.get("health", "unknown")).lower() in {"offline", "error", "degraded"}
+            camera_bad = not camera.get("connected", False) or str(camera.get("health", "unknown")).lower() in {"offline", "error", "degraded", "frozen", "poor_quality", "stale"}
             age = context.get("camera_frame_age_seconds")
             if age is not None and float(age) > float(th["camera_stale_seconds"]): camera_bad = True
             fp = f"camera_health:{camera.get('camera_id') or 'default'}"

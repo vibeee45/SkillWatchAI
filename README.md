@@ -42,3 +42,16 @@ The current supported classes are chair, table (COCO dining-table category), TV/
 Phase 10 adds persistent, configurable rules for attendance discrepancies, individual attendance mismatches, low occupancy, observation-only infrastructure changes, overcapacity, camera health, and low-confidence/manual verification. Alerts record rule ID, severity, confidence, timestamps, repeated evidence, scope, and evidence metadata in SQLite. No expected equipment counts or inventory-shortage rules are used. See `PHASE10_COMPLIANCE_ALERT_ENGINE.md`.
 
 Compliance API: `GET /api/compliance/status`, `GET/PUT /api/compliance/config`, `POST /api/compliance/evaluate`, `GET /api/compliance/alerts`, `GET /api/compliance/events`, and `POST /api/compliance/alerts/{alert_id}/resolve`.
+
+
+## Phase 11 — Offline Mode & Camera Reliability
+
+Phase 11 adds a separate persistent SQLite queue at `data/offline_events.db`. Attendance events, compliance-alert transitions, and camera-health transitions are stored locally first. Local AI processing does not depend on the internet connection.
+
+- Retry and recovery: `offline/sync_worker.py` delivers due events to a configured remote receiver with bounded retry/backoff.
+- Remote synchronization is opt-in. Without `SKILLWATCH_SYNC_URL`, events remain on the machine.
+- Camera reliability: reconnect attempts for live device/RTSP sources, stale-frame heartbeat detection, frozen-frame detection, and image-quality metrics.
+- Dashboard: camera health, frame age, image quality, reconnect count, and offline queue/sync status.
+- API: `GET /api/offline/status`, `POST /api/offline/sync`, and `GET /api/camera/status`.
+
+See `PHASE11_OFFLINE_CAMERA_RELIABILITY.md` and `MANUAL_SETUP_PHASE11.md` for setup and validation. A remote receiver must accept event JSON and deduplicate using `event_id` / `Idempotency-Key`; configure only a trusted HTTPS endpoint.

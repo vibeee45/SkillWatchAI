@@ -8,6 +8,7 @@ import cv2
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
 from camera.camera_manager import CameraManager
 from camera.camera_store import CameraStore
@@ -25,6 +26,8 @@ from detection.occupancy import OccupancyService
 from detection.infrastructure import InfrastructureDetector
 from compliance.rules import InfrastructureObservationService
 from compliance.engine import ComplianceEngine
+from offline.event_queue import SQLiteEventQueue
+from offline.sync_worker import EventSyncWorker
 import json
 import io
 from datetime import datetime, timezone
@@ -33,13 +36,15 @@ from typing import Any
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Load optional local-only settings (not included in the distributable ZIP).
+load_dotenv(BASE_DIR / ".env", override=False)
 FRONTEND_DIR = BASE_DIR / "frontend"
 UPLOAD_DIR = BASE_DIR / "camera" / "uploaded_videos"
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.6.0")
+app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.7.0")
 camera_manager = CameraManager()
 camera_store = CameraStore(DATA_DIR / "cameras.json")
 camera_lock = threading.Lock()
@@ -70,6 +75,44 @@ infrastructure_detector = InfrastructureDetector(
 infrastructure_observations = InfrastructureObservationService()
 infrastructure_config_path = DATA_DIR / "infrastructure_config.json"
 compliance_engine = ComplianceEngine(DATA_DIR / "compliance_alerts.db", DATA_DIR / "compliance_config.json")
+
+# Events are always persisted locally first. Remote delivery is opt-in through
+# SKILLWATCH_SYNC_URL; no student/compliance data leaves this machine by default.
+event_queue = SQLiteEventQueue(DATA_DIR / "offline_events.db")
+event_sync_worker = EventSyncWorker(event_queue)
+event_sync_worker.start()
+_last_camera_health_signature: tuple | None = None
+
+
+def _queue_event(event_type: str, payload: dict[str, Any], event_id: str | None = None) -> None:
+    """Best-effort local event persistence; never interrupt core AI processing."""
+    try:
+        event_queue.enqueue(event_type, payload, event_id=event_id)
+    except Exception:
+        logging.getLogger("skillwatch.offline").exception("Could not persist %s event", event_type)
+
+
+def _record_camera_health_transition(status: dict) -> None:
+    """Queue only camera health transitions, not every 3-second status poll."""
+    global _last_camera_health_signature
+    quality = status.get("frame_quality") or {}
+    signature = (
+        status.get("camera_id"), bool(status.get("connected")), status.get("health"),
+        quality.get("state"),
+    )
+    if signature == _last_camera_health_signature:
+        return
+    _last_camera_health_signature = signature
+    _queue_event("camera_health", {
+        "camera_id": status.get("camera_id"),
+        "room": status.get("room"),
+        "connected": bool(status.get("connected")),
+        "health": status.get("health"),
+        "frame_age_seconds": status.get("frame_age_seconds"),
+        "frame_quality": quality,
+        "reconnect_attempts": status.get("reconnect_attempts", 0),
+        "last_error": status.get("last_error"),
+    })
 
 recognition_service = FaceRecognitionService(
     student_store=student_store,
@@ -183,7 +226,25 @@ def health():
 
 @app.get("/api/camera/status")
 def camera_status():
-    return camera_manager.get_status()
+    status = camera_manager.get_status()
+    _record_camera_health_transition(status)
+    return status
+
+
+@app.get("/api/offline/status")
+def offline_status():
+    return {
+        "queue": event_queue.status(),
+        "sync": event_sync_worker.status(),
+        "local_ai_processing": "enabled",
+        "note": "Events are stored locally. Remote synchronization is opt-in via SKILLWATCH_SYNC_URL.",
+    }
+
+
+@app.post("/api/offline/sync")
+def offline_sync_now():
+    """Manually attempt delivery of due queued events to the configured receiver."""
+    return event_sync_worker.sync_once()
 
 
 @app.get("/api/face/status")
@@ -477,6 +538,7 @@ def connect_camera(request: CameraConnectRequest):
         raise HTTPException(status_code=503, detail="Could not connect to the selected camera source.")
     status = camera_manager.get_status()
     camera_store.upsert(_config_from_status(status))
+    _record_camera_health_transition(status)
     return {"message": "Camera connected successfully.", "status": status}
 
 
@@ -499,13 +561,16 @@ async def connect_uploaded_video(file: UploadFile = File(...), camera_id: str = 
         raise HTTPException(status_code=503, detail="Could not open uploaded video.")
     status = camera_manager.get_status()
     camera_store.upsert(_config_from_status(status))
+    _record_camera_health_transition(status)
     return {"message": "Uploaded video connected successfully.", "status": status}
 
 
 @app.post("/api/camera/disconnect")
 def disconnect_camera():
     camera_manager.disconnect()
-    return {"message": "Camera disconnected.", "status": camera_manager.get_status()}
+    status = camera_manager.get_status()
+    _record_camera_health_transition(status)
+    return {"message": "Camera disconnected.", "status": status}
 
 
 def _map_face_boxes_to_original(frame, detections):
@@ -822,7 +887,13 @@ def correct_attendance(request: AttendanceCorrectionRequest):
     if not attendance_store.get_session(request.session_id):
         raise HTTPException(status_code=404, detail="Attendance session not found.")
     try:
-        return attendance_store.correct(request.session_id, request.student_id, request.status, request.reason, request.actor)
+        record = attendance_store.correct(request.session_id, request.student_id, request.status, request.reason, request.actor)
+        _queue_event(
+            "attendance_corrected",
+            {"attendance": record, "reason": request.reason, "actor": request.actor},
+            event_id=f"attendance-correction:{request.session_id}:{request.student_id}:{record.get('updated_at', '')}",
+        )
+        return record
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -882,7 +953,35 @@ def _build_compliance_context() -> dict[str, Any]:
 
 
 def _evaluate_compliance() -> dict[str, Any]:
-    return compliance_engine.evaluate(_build_compliance_context())
+    active_before = {item.get("id") for item in compliance_engine.store.list_alerts("ACTIVE", 500)}
+    result = compliance_engine.evaluate(_build_compliance_context())
+    active_after = {item.get("id") for item in result.get("active_alerts", [])}
+
+    # Queue one event per alert activation (not every repeated video-frame
+    # observation). first_seen_at changes when an existing alert is reopened.
+    for alert in result.get("new_or_updated_alerts", []):
+        alert_id = alert.get("id")
+        if alert_id is not None:
+            _queue_event(
+                "compliance_alert",
+                {"alert": alert},
+                event_id=f"compliance-alert:{alert_id}:{alert.get('first_seen_at', '')}",
+            )
+
+    # Auto-resolutions are transitions too. Queue only IDs that were active
+    # before this evaluation and are no longer active afterward.
+    resolved_ids = active_before - active_after
+    if resolved_ids:
+        resolved = {item.get("id"): item for item in compliance_engine.store.list_alerts("RESOLVED", 500)}
+        for alert_id in resolved_ids:
+            alert = resolved.get(alert_id)
+            if alert:
+                _queue_event(
+                    "compliance_alert_resolved",
+                    {"alert": alert},
+                    event_id=f"compliance-resolved:{alert_id}:{alert.get('resolved_at', '')}",
+                )
+    return result
 
 
 @app.get("/api/compliance/status")
@@ -931,6 +1030,11 @@ def compliance_alert_resolve(alert_id: int, request: ComplianceResolveRequest):
     result = compliance_engine.store.resolve(alert_id, request.reason)
     if result is None:
         raise HTTPException(status_code=404, detail="Compliance alert not found")
+    _queue_event(
+        "compliance_alert_resolved",
+        {"alert": result, "reason": request.reason},
+        event_id=f"compliance-resolved:{alert_id}:{result.get('resolved_at', '')}",
+    )
     return {"message": "Alert resolved.", "alert": result}
 
 
@@ -940,6 +1044,7 @@ def frame_generator():
             time.sleep(0.1)
             continue
         success, packet = camera_manager.read_frame_packet()
+        _record_camera_health_transition(camera_manager.get_status())
         if not success or packet is None:
             time.sleep(0.05)
             continue
@@ -990,6 +1095,11 @@ def frame_generator():
                             )
                             if created:
                                 auto_attendance.append(record)
+                                _queue_event(
+                                    "attendance_created",
+                                    {"attendance": record, "session_id": active_session["id"]},
+                                    event_id=f"attendance:{active_session['id']}:{data['student_id']}",
+                                )
                     ai_result["attendance"] = auto_attendance
                 else:
                     ai_result["attendance"] = []
