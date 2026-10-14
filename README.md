@@ -36,3 +36,9 @@ Main endpoints:
 - `POST /api/infrastructure/reset`
 
 The current supported classes are chair, table (COCO dining-table category), TV/monitor (COCO TV category), and laptop. Counts are observed detections in the current frame, not expected inventory. Zone geometry is stored in `data/infrastructure_config.json`; equipment quantities are not stored or used.
+
+## Phase 10 — Compliance & Alert Engine
+
+Phase 10 adds persistent, configurable rules for attendance discrepancies, individual attendance mismatches, low occupancy, observation-only infrastructure changes, overcapacity, camera health, and low-confidence/manual verification. Alerts record rule ID, severity, confidence, timestamps, repeated evidence, scope, and evidence metadata in SQLite. No expected equipment counts or inventory-shortage rules are used. See `PHASE10_COMPLIANCE_ALERT_ENGINE.md`.
+
+Compliance API: `GET /api/compliance/status`, `GET/PUT /api/compliance/config`, `POST /api/compliance/evaluate`, `GET /api/compliance/alerts`, `GET /api/compliance/events`, and `POST /api/compliance/alerts/{alert_id}/resolve`.

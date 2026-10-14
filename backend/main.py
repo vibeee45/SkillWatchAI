@@ -24,8 +24,11 @@ from detection.person_detector import LightweightPersonDetector
 from detection.occupancy import OccupancyService
 from detection.infrastructure import InfrastructureDetector
 from compliance.rules import InfrastructureObservationService
+from compliance.engine import ComplianceEngine
 import json
 import io
+from datetime import datetime, timezone
+from typing import Any
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
@@ -66,6 +69,7 @@ infrastructure_detector = InfrastructureDetector(
 )
 infrastructure_observations = InfrastructureObservationService()
 infrastructure_config_path = DATA_DIR / "infrastructure_config.json"
+compliance_engine = ComplianceEngine(DATA_DIR / "compliance_alerts.db", DATA_DIR / "compliance_config.json")
 
 recognition_service = FaceRecognitionService(
     student_store=student_store,
@@ -115,6 +119,10 @@ class OccupancyZoneRequest(BaseModel):
 
 class InfrastructureZonesRequest(BaseModel):
     zones: list[dict]
+
+
+class ComplianceResolveRequest(BaseModel):
+    reason: str = "Manually resolved by operator"
 
 
 class CameraConnectRequest(BaseModel):
@@ -404,7 +412,26 @@ def recognition_test():
 
 @app.get("/api/cameras")
 def list_cameras():
-    return {"cameras": camera_store.list()}
+    # cameras.json stores configuration, not a live connection. Overlay its
+    # status with the manager's current state so it cannot remain falsely
+    # "connected" after a disconnect.
+    cameras = camera_store.list()
+    live = camera_manager.get_status()
+    live_camera_id = live.get("camera_id")
+
+    for camera in cameras:
+        camera["status"] = (
+            "connected"
+            if live.get("connected") and live_camera_id == camera.get("camera_id")
+            else "disconnected"
+        )
+        camera["live_health"] = (
+            live.get("health", "unknown")
+            if live_camera_id == camera.get("camera_id")
+            else "disconnected"
+        )
+
+    return {"cameras": cameras}
 
 
 @app.get("/api/cameras/{camera_id}")
@@ -806,6 +833,107 @@ def attendance_status():
     return {"active_session": active}
 
 
+def _build_compliance_context() -> dict[str, Any]:
+    camera = camera_manager.get_status()
+
+    # A manager may have no active identity after startup or explicit
+    # disconnect. Recover metadata from the saved configuration without
+    # changing the live connected/health fields.
+    if not camera.get("camera_id"):
+        saved_cameras = camera_store.list()
+        if saved_cameras:
+            saved_camera = saved_cameras[0]
+            camera["camera_id"] = saved_camera.get("camera_id")
+            camera["room"] = camera.get("room") or saved_camera.get("room")
+            camera["source_type"] = camera.get("source_type") or saved_camera.get("source_type")
+            camera["source"] = camera.get("source") or saved_camera.get("source")
+
+    camera_age = None
+    last_frame = camera.get("last_frame_at")
+    if last_frame:
+        try:
+            parsed = datetime.fromisoformat(str(last_frame).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            camera_age = max(0.0, (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds())
+        except (ValueError, TypeError):
+            camera_age = None
+    active = attendance_store.active_session_for_camera(camera.get("camera_id") or "")
+    if active is None:
+        recent_sessions = attendance_store.list_sessions(limit=1)
+        if recent_sessions and str(recent_sessions[0].get("status", "")).upper() == "ENDED":
+            active = recent_sessions[0]
+    summary = attendance_store.summary(active["id"], student_store.list()) if active else None
+    occ = occupancy_service.status()
+    infra = infrastructure_observations.status()
+    recognition = recognition_service.status().get("last_results", [])
+    return {
+        "camera": camera,
+        "camera_frame_age_seconds": camera_age,
+        "active_session": active,
+        "attendance_summary": summary or {},
+        "occupancy": occ,
+        "infrastructure": infra,
+        "recognition": recognition,
+        "room_id": camera.get("room") or "classroom",
+        # Do not resolve sensor-derived alerts based on invalid/missing sensor data.
+        "evaluation_valid": bool(camera.get("connected")) and bool(infra.get("detection_valid")) and infra.get("detection_state") == "SUCCESS",
+    }
+
+
+def _evaluate_compliance() -> dict[str, Any]:
+    return compliance_engine.evaluate(_build_compliance_context())
+
+
+@app.get("/api/compliance/status")
+def compliance_status():
+    return {
+        "configuration": compliance_engine.get_config(),
+        "active_alerts": compliance_engine.store.list_alerts("ACTIVE"),
+        "recent_alerts": compliance_engine.store.list_alerts(None, 100),
+    }
+
+
+@app.get("/api/compliance/config")
+def compliance_config_get():
+    return compliance_engine.get_config()
+
+
+@app.put("/api/compliance/config")
+def compliance_config_update(payload: dict[str, Any]):
+    try:
+        config = compliance_engine.update_config(payload)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "Compliance rule configuration saved.", "configuration": config}
+
+
+@app.post("/api/compliance/evaluate")
+def compliance_evaluate():
+    return _evaluate_compliance()
+
+
+@app.get("/api/compliance/alerts")
+def compliance_alerts(status: str = "ACTIVE", limit: int = 100):
+    normalized = status.upper()
+    if normalized not in {"ACTIVE", "RESOLVED", "ALL"}:
+        raise HTTPException(status_code=400, detail="status must be ACTIVE, RESOLVED, or ALL")
+    return {"alerts": compliance_engine.store.list_alerts(None if normalized == "ALL" else normalized, limit)}
+
+
+@app.get("/api/compliance/events")
+def compliance_events(limit: int = 100):
+    return {"events": compliance_engine.store.events(limit)}
+
+
+@app.post("/api/compliance/alerts/{alert_id}/resolve")
+def compliance_alert_resolve(alert_id: int, request: ComplianceResolveRequest):
+    result = compliance_engine.store.resolve(alert_id, request.reason)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Compliance alert not found")
+    return {"message": "Alert resolved.", "alert": result}
+
+
 def frame_generator():
     while True:
         if not camera_manager.is_connected:
@@ -865,6 +993,11 @@ def frame_generator():
                     ai_result["attendance"] = auto_attendance
                 else:
                     ai_result["attendance"] = []
+                try:
+                    ai_result["compliance"] = _evaluate_compliance()
+                except Exception as compliance_exc:
+                    logging.getLogger("skillwatch.compliance").exception("Compliance evaluation failed")
+                    ai_result["compliance"] = {"error": str(compliance_exc)}
             except Exception as exc:
                 logging.getLogger("skillwatch.ai").warning("Occupancy/recognition skipped: %s", exc)
                 ai_result["recognition"] = [result.as_dict() for result in recognition_results]

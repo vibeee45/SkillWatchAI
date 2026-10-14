@@ -19,6 +19,14 @@ class CameraManager:
         self.source_type = None
         self.camera_id = None
         self.room = None
+
+        # Retain the last successful camera identity for health reporting
+        # after a manual disconnect or a live-source failure.
+        self.last_camera_id = None
+        self.last_room = None
+        self.last_source_type = None
+        self.last_source = None
+
         self.is_connected = False
         self.health = "disconnected"
         self.last_frame_at: Optional[str] = None
@@ -75,6 +83,13 @@ class CameraManager:
             self.source_type = source_type
             self.camera_id = camera_id
             self.room = room
+
+            # Preserve identity separately from the active connection fields.
+            self.last_camera_id = camera_id
+            self.last_room = room
+            self.last_source_type = source_type
+            self.last_source = source
+
             self.is_connected = True
             self.health = "healthy"
             self.last_error = None
@@ -217,10 +232,11 @@ class CameraManager:
             return {
                 "connected": self.is_connected,
                 "health": self.health,
-                "camera_id": self.camera_id,
-                "room": self.room,
-                "source_type": self.source_type,
-                "source": str(self.source) if self.source is not None else None,
+                "camera_id": self.camera_id or self.last_camera_id,
+                "room": self.room or self.last_room,
+                "source_type": self.source_type or self.last_source_type,
+                "source": str(self.source if self.source is not None else self.last_source)
+                if self.source is not None or self.last_source is not None else None,
                 "fps": configured_fps,
                 "actual_fps": round(self.actual_fps, 2),
                 "width": width,

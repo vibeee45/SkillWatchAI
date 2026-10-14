@@ -5,7 +5,7 @@ This patch adds camera-frame telemetry and a debug JPEG route to investigate ver
 ## New diagnostics
 - `GET /api/infrastructure/debug-frame.jpg`: returns the exact latest cached camera frame. Open it in a browser while the backend is running to confirm it shows the classroom.
 - `GET /api/infrastructure/status`: includes `last_frame_stats`, `last_all_class_max_score`, and `last_top_class_scores`.
-- `POST /api/infrastructure/test`: if all COCO class scores are below `SKILLWATCH_INFRA_MIN_EVIDENCE_SCORE` (default 0.05) and no equipment is detected, returns `LOW_CONFIDENCE` rather than counting the frame as evidence that all inventory is missing. This does not prove the model is accurate; it deliberately prevents false shortage alerts.
+- `POST /api/infrastructure/test`: if all COCO class scores are below `SKILLWATCH_INFRA_MIN_EVIDENCE_SCORE` (default 0.05) and no equipment is detected, returns `LOW_CONFIDENCE` rather than treating an uncertain frame as a valid zero-object observation. This does not prove the model is accurate; it deliberately avoids inventing counts when inference evidence is weak.
 
 ## Test steps
 1. Restart backend.
