@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cv2
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from pydantic import BaseModel
 
 from camera.camera_manager import CameraManager
@@ -22,6 +22,10 @@ from face_attendance.student_store import StudentStore
 from face_attendance.attendance import AttendanceStore
 from detection.person_detector import LightweightPersonDetector
 from detection.occupancy import OccupancyService
+from detection.infrastructure import InfrastructureDetector
+from compliance.rules import InfrastructureObservationService
+import json
+import io
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
@@ -55,6 +59,13 @@ person_detector = LightweightPersonDetector(
     ),
 )
 occupancy_service = OccupancyService(history_size=int(os.getenv("SKILLWATCH_OCCUPANCY_SMOOTHING_FRAMES", "5")))
+infrastructure_detector = InfrastructureDetector(
+    BASE_DIR / "models" / "yolov8n.onnx",
+    confidence_threshold=float(os.getenv("SKILLWATCH_INFRA_CONFIDENCE", "0.25")),
+    nms_threshold=float(os.getenv("SKILLWATCH_INFRA_NMS", "0.45")),
+)
+infrastructure_observations = InfrastructureObservationService()
+infrastructure_config_path = DATA_DIR / "infrastructure_config.json"
 
 recognition_service = FaceRecognitionService(
     student_store=student_store,
@@ -102,6 +113,10 @@ class OccupancyZoneRequest(BaseModel):
     zones: list[dict]
 
 
+class InfrastructureZonesRequest(BaseModel):
+    zones: list[dict]
+
+
 class CameraConnectRequest(BaseModel):
     source_type: str
     camera_id: str = "CAM-001"
@@ -124,6 +139,29 @@ def _config_from_status(status: dict) -> dict:
         "fps": status["fps"],
     }
 
+
+def _load_infrastructure_config() -> None:
+    """Restore zone geometry only; expected counts and inventory are not used."""
+    if not infrastructure_config_path.exists():
+        return
+    try:
+        config = json.loads(infrastructure_config_path.read_text(encoding="utf-8"))
+        infrastructure_observations.set_zones(config.get("zones", []))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        logging.getLogger("skillwatch.infrastructure").warning(
+            "Could not load infrastructure zones: %s", exc
+        )
+
+
+def _save_infrastructure_config() -> None:
+    """Persist zone geometry only; never save equipment quantities."""
+    infrastructure_config_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = infrastructure_config_path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"zones": infrastructure_observations.get_zones()}, indent=2), encoding="utf-8")
+    temporary.replace(infrastructure_config_path)
+
+
+_load_infrastructure_config()
 
 @app.get("/")
 def root():
@@ -551,6 +589,32 @@ def _map_person_boxes_to_original(frame, detections):
     return mapped
 
 
+def _annotate_infrastructure_detections(frame, ai_result):
+    if not ai_result:
+        return frame
+    infrastructure = ai_result.get("infrastructure") or {}
+    detections = infrastructure.get("detections", [])
+    if not detections:
+        return frame
+    output = frame.copy()
+    h, w = output.shape[:2]
+    tw, th = frame_pipeline.target_width, frame_pipeline.target_height
+    scale = min(tw / max(w, 1), th / max(h, 1))
+    nw, nh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
+    pad_x, pad_y = (tw - nw) // 2, (th - nh) // 2
+    for detection in detections:
+        x, y, bw, bh = detection.get("bbox", [0, 0, 0, 0])
+        x = int(round((x - pad_x) / scale))
+        y = int(round((y - pad_y) / scale))
+        bw, bh = int(round(bw / scale)), int(round(bh / scale))
+        x = max(0, min(w - 1, x)); y = max(0, min(h - 1, y))
+        x2 = max(x + 1, min(w - 1, x + bw)); y2 = max(y + 1, min(h - 1, y + bh))
+        label = f"{detection.get('class_name', 'equipment')} {float(detection.get('confidence', 0)):.2f}"
+        cv2.rectangle(output, (x, y), (x2, y2), (0, 200, 255), 2)
+        cv2.putText(output, label, (x, max(16, y - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 255), 1, cv2.LINE_AA)
+    return output
+
+
 def _annotate_person_detections(frame, ai_result):
     if not ai_result:
         return frame
@@ -578,6 +642,89 @@ def _annotate_person_detections(frame, ai_result):
         cv2.LINE_AA,
     )
     return output
+
+
+@app.get("/api/infrastructure/status")
+def infrastructure_status():
+    """Return detector diagnostics and observed equipment counts only."""
+    return {
+        "detector": infrastructure_detector.status(),
+        "observation": infrastructure_observations.status(),
+    }
+
+
+@app.post("/api/infrastructure/test")
+def infrastructure_test():
+    """Run one equipment-detection pass against the most recent live frame."""
+    if not camera_manager.is_connected:
+        raise HTTPException(status_code=409, detail="Connect a camera first.")
+    success, packet = camera_manager.get_latest_frame_packet()
+    if not success or packet is None:
+        raise HTTPException(status_code=503, detail="No live camera frame available.")
+    try:
+        detections = infrastructure_detector.detect(packet.frame)
+        h, w = packet.frame.shape[:2]
+        all_class_max = float(infrastructure_detector.last_all_class_max_score)
+        if not detections and all_class_max < float(os.getenv("SKILLWATCH_INFRA_MIN_EVIDENCE_SCORE", "0.05")):
+            result = infrastructure_observations.mark_insufficient_evidence(
+                f"No confident objects in frame (maximum COCO class score={all_class_max:.4f}). Check the camera preview, framing, lighting, and model input.",
+                {"last_frame_stats": infrastructure_detector.last_frame_stats,
+                 "last_top_class_scores": infrastructure_detector.last_top_class_scores,
+                 "minimum_evidence_score": float(os.getenv("SKILLWATCH_INFRA_MIN_EVIDENCE_SCORE", "0.05"))},
+            )
+        else:
+            result = infrastructure_observations.process(detections, w, h)
+    except Exception as exc:
+        logging.getLogger("skillwatch.infrastructure").exception("Infrastructure detection failed")
+        result = infrastructure_observations.mark_inference_error(str(exc))
+        return {
+            "camera_id": packet.camera_id,
+            "frame_shape": list(packet.frame.shape),
+            "detector": infrastructure_detector.status(),
+            "result": result,
+        }
+    return {
+        "camera_id": packet.camera_id,
+        "frame_shape": list(packet.frame.shape),
+        "detector": infrastructure_detector.status(),
+        "result": result,
+    }
+
+
+@app.get("/api/infrastructure/debug-frame.jpg")
+def infrastructure_debug_frame():
+    """Return the exact latest camera frame used by Phase 9 for visual debugging."""
+    if not camera_manager.is_connected:
+        raise HTTPException(status_code=409, detail="Connect a camera first.")
+    success, packet = camera_manager.get_latest_frame_packet()
+    if not success or packet is None:
+        raise HTTPException(status_code=503, detail="No live camera frame available.")
+    ok, encoded = cv2.imencode(".jpg", packet.frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+    if not ok:
+        raise HTTPException(status_code=500, detail="Could not encode latest camera frame.")
+    return Response(content=encoded.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/infrastructure/zones")
+def infrastructure_zones():
+    return {"zones": infrastructure_observations.get_zones()}
+
+
+@app.put("/api/infrastructure/zones")
+def infrastructure_zones_update(request: InfrastructureZonesRequest):
+    try:
+        zones = infrastructure_observations.set_zones(request.zones)
+        _save_infrastructure_config()
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid infrastructure zones: {exc}") from exc
+    return {"zones": zones, "message": "Infrastructure zones saved."}
+
+
+@app.post("/api/infrastructure/reset")
+def infrastructure_reset():
+    infrastructure_detector.reset()
+    infrastructure_observations.reset()
+    return {"message": "Infrastructure detection metrics and observation state reset."}
 
 
 @app.get("/api/attendance/classrooms")
@@ -692,6 +839,18 @@ def frame_generator():
                     ai_frame.frame.shape[1],
                     ai_frame.frame.shape[0],
                 )
+                try:
+                    equipment_detections = infrastructure_detector.detect(ai_frame.frame)
+                    ai_result["infrastructure"] = infrastructure_observations.process(
+                        equipment_detections,
+                        ai_frame.frame.shape[1],
+                        ai_frame.frame.shape[0],
+                    )
+                except Exception as infra_exc:
+                    logging.getLogger("skillwatch.infrastructure").exception(
+                        "Infrastructure inference failed; observation marked unavailable"
+                    )
+                    ai_result["infrastructure"] = infrastructure_observations.mark_inference_error(str(infra_exc))
                 active_session = attendance_store.active_session_for_camera(packet.camera_id)
                 if active_session:
                     auto_attendance = []
@@ -710,9 +869,11 @@ def frame_generator():
                 logging.getLogger("skillwatch.ai").warning("Occupancy/recognition skipped: %s", exc)
                 ai_result["recognition"] = [result.as_dict() for result in recognition_results]
                 ai_result["occupancy"] = occupancy_service.status()
+                ai_result["infrastructure"] = infrastructure_observations.mark_inference_error(str(exc))
                 ai_result["ai_error"] = str(exc)
             frame_pipeline.last_ai_result = ai_result
         preview_frame = _annotate_person_detections(packet.frame, frame_pipeline.last_ai_result)
+        preview_frame = _annotate_infrastructure_detections(preview_frame, frame_pipeline.last_ai_result)
         preview_frame = _annotate_face_detections(preview_frame, frame_pipeline.last_ai_result)
         ok, encoded = cv2.imencode(".jpg", preview_frame)
         if not ok:

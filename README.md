@@ -22,3 +22,17 @@ Phase 8 adds local person detection and occupancy analytics on top of Phases 1â€
 
 ## Important prototype note
 The person detector is deliberately lightweight and CPU-friendly. HOG is not a modern deep-learning detector and may miss people in difficult classroom views. Phase 8 should therefore be validated on the target camera before being treated as a final production detector.
+
+# Phase 9 â€” Observation-Only Infrastructure Detection
+
+Phase 9 uses YOLOv8n ONNX to report visible equipment detections. Because classrooms and training centres have different equipment quantities, the prototype does not set expected counts, configure inventory, calculate shortages, or generate inventory-based alerts. See `PHASE9_INFRASTRUCTURE.md` for details and limitations.
+
+Main endpoints:
+- `GET /api/infrastructure/status`
+- `POST /api/infrastructure/test`
+- `GET /api/infrastructure/debug-frame.jpg`
+- `GET /api/infrastructure/zones`
+- `PUT /api/infrastructure/zones`
+- `POST /api/infrastructure/reset`
+
+The current supported classes are chair, table (COCO dining-table category), TV/monitor (COCO TV category), and laptop. Counts are observed detections in the current frame, not expected inventory. Zone geometry is stored in `data/infrastructure_config.json`; equipment quantities are not stored or used.

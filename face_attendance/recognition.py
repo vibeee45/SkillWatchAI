@@ -1063,8 +1063,8 @@ class FaceRecognitionService:
                     "face_count": len(detections),
                     "detections": frame_debug,
                     "enrollment": self.enrollment_diagnostics,
-                    "sface_loaded": bool(self.recognizer.loaded),
-                    "sface_model_error": self.recognizer.last_error,
+                    "sface_loaded": bool(getattr(self.recognizer, "loaded", False)),
+                    "sface_model_error": getattr(self.recognizer, "last_error", None),
                 }
 
             self.last_error = None

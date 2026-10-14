@@ -10,3 +10,6 @@ numpy
 python-multipart
 
 cryptography
+
+# Preferred stable CPU inference backend for Phase 9 infrastructure detection
+onnxruntime>=1.18.0
