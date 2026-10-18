@@ -28,6 +28,7 @@ from compliance.rules import InfrastructureObservationService
 from compliance.engine import ComplianceEngine
 from offline.event_queue import SQLiteEventQueue
 from offline.sync_worker import EventSyncWorker
+from database import init_db
 import json
 import io
 from datetime import datetime, timezone
@@ -214,6 +215,12 @@ def _save_infrastructure_config() -> None:
 
 _load_infrastructure_config()
 
+try:
+    init_db()
+except Exception as _db_init_err:
+    logging.getLogger("skillwatch.database").warning("Relational schema initialization skipped: %s", _db_init_err)
+
+
 @app.get("/")
 def root():
     return FileResponse(FRONTEND_DIR / "index.html")
@@ -222,6 +229,60 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+
+@app.get("/api/dashboard/summary")
+def dashboard_summary():
+    """Unified executive overview for dashboard and monitoring officers."""
+    cam_status = camera_manager.get_status()
+    _record_camera_health_transition(cam_status)
+    occ_status = occupancy_service.status()
+    infra_status = infrastructure_observations.status()
+    active_session = attendance_store.active_session_for_camera(cam_status.get("camera_id") or "")
+    att_summary = attendance_store.summary(active_session["id"], student_store.list()) if active_session else None
+    alerts_active = compliance_engine.store.list_alerts("ACTIVE", limit=100)
+    queue_status = event_queue.status()
+    sync_status = event_sync_worker.status()
+
+    critical_alerts = [a for a in alerts_active if str(a.get("severity", "")).lower() == "high"]
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "camera": cam_status,
+        "occupancy": {
+            "total": occ_status.get("smoothed_occupancy", 0),
+            "raw": occ_status.get("raw_occupancy", 0),
+            "recognized": occ_status.get("recognized_students", 0),
+            "unknown": occ_status.get("unknown_persons", 0),
+            "active_tracks": occ_status.get("active_tracks", 0),
+        },
+        "attendance": {
+            "has_active_session": active_session is not None,
+            "session": active_session,
+            "summary": att_summary or {
+                "present_count": 0,
+                "absent_count": 0,
+                "total_students": len(student_store.list()),
+                "attendance_percentage": 0.0,
+            },
+        },
+        "infrastructure": {
+            "detected_counts": infra_status.get("current_counts", {}),
+            "detection_valid": infra_status.get("detection_valid", False),
+            "detection_state": infra_status.get("detection_state", "UNKNOWN"),
+        },
+        "compliance": {
+            "active_alerts_count": len(alerts_active),
+            "critical_alerts_count": len(critical_alerts),
+            "recent_alerts": alerts_active[:5],
+        },
+        "offline": {
+            "pending_events": queue_status.get("pending", 0),
+            "synced_events": queue_status.get("synced", 0),
+            "sync_configured": sync_status.get("configured", False),
+        },
+        "pipeline": frame_pipeline.get_status().get("stats", {}),
+    }
 
 
 @app.get("/api/camera/status")
