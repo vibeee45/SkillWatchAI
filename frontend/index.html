@@ -68,6 +68,22 @@
     .small-btn { padding:7px 10px; font-size:12px; }
     .secondary { background:#e9edf1; color:#26333d; }
     .warning { background:#fff2cc; color:#7a5200; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px; }
+    .kpi-card { background: white; border: 1px solid #e0e5e9; border-radius: 10px; padding: 14px 16px; box-shadow: 0 2px 6px rgba(0,0,0,.03); }
+    .kpi-title { font-size: 11px; text-transform: uppercase; font-weight: 700; color: #66737d; letter-spacing: .5px; }
+    .kpi-value { font-size: 24px; font-weight: 700; margin: 4px 0 2px; color: #16232e; }
+    .kpi-sub { font-size: 11px; color: #8895a0; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .badge-high { background: #fee4e2; color: #d92d20; border: 1px solid #fecdca; }
+    .badge-medium { background: #fef0c7; color: #b54708; border: 1px solid #fedf89; }
+    .badge-low { background: #e0f2fe; color: #026aa2; border: 1px solid #b9e6fe; }
+    .badge-active { background: #ecfdf3; color: #027a48; border: 1px solid #a6f4c5; }
+    .badge-resolved { background: #f2f4f7; color: #475467; border: 1px solid #eaecf0; }
+    .alert-item { display: flex; align-items: flex-start; justify-content: space-between; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; background: #fff; }
+    .alert-item.high { border-left: 4px solid #d92d20; }
+    .alert-item.medium { border-left: 4px solid #f79009; }
+    .alert-item.low { border-left: 4px solid #0ba5ec; }
+    .alert-item.resolved { border-left: 4px solid #98a2b3; opacity: .75; background: #fafafa; }
     @media(max-width: 850px) { .student-grid { grid-template-columns:1fr; } }
     @media(max-width: 850px) { .grid { grid-template-columns:1fr; } .preview { min-height:360px; } }
   </style>
@@ -82,6 +98,34 @@
   </header>
 
   <main class="page">
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-title">Camera Health</div>
+        <div class="kpi-value" id="kpiCameraHealth">OFFLINE</div>
+        <div class="kpi-sub" id="kpiCameraFps">FPS: — · Frame age: —</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Room Occupancy</div>
+        <div class="kpi-value" id="kpiOccupancy">0</div>
+        <div class="kpi-sub" id="kpiOccupancySub">0 recognized · 0 unknown</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Class Attendance</div>
+        <div class="kpi-value" id="kpiAttendance">0%</div>
+        <div class="kpi-sub" id="kpiAttendanceSub">No active session</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Observed Assets</div>
+        <div class="kpi-value" id="kpiAssets">0</div>
+        <div class="kpi-sub" id="kpiAssetsSub">chairs, tables, laptops, monitors</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Compliance Alerts</div>
+        <div class="kpi-value" id="kpiAlerts">0</div>
+        <div class="kpi-sub" id="kpiAlertsSub">0 critical requiring review</div>
+      </div>
+    </div>
+
     <div class="grid">
       <section class="card">
         <h2>Camera Configuration</h2>
@@ -299,6 +343,84 @@
         <table class="student-table" style="margin-top:10px;">
           <thead><tr><th>Track</th><th>Student</th><th>Status</th><th>Similarity</th><th>Timestamp</th></tr></thead>
           <tbody id="recognitionTableBody"><tr><td colspan="5">No recognition result yet.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" id="infrastructureCard" style="margin-top:22px;">
+      <h2>Infrastructure & Equipment Monitoring</h2>
+      <div style="font-size:13px;color:#66737d;line-height:1.5;">
+        YOLOv8n ONNX detects physical equipment (chairs, tables/workbenches, laptops, TV/monitors). Observations are tracked temporally to detect changes without hardcoded arbitrary inventory.
+      </div>
+
+      <div class="student-grid" style="margin-top:14px;">
+        <div><label>Chairs</label><div id="infraChairs" style="font-size:26px;font-weight:700;">0</div></div>
+        <div><label>Tables / Workbenches</label><div id="infraTables" style="font-size:26px;font-weight:700;">0</div></div>
+        <div><label>Laptops</label><div id="infraLaptops" style="font-size:26px;font-weight:700;">0</div></div>
+      </div>
+      <div class="student-grid" style="margin-top:10px;">
+        <div><label>TVs / Monitors</label><div id="infraMonitors" style="font-size:26px;font-weight:700;">0</div></div>
+        <div><label>Detection State</label><div id="infraState" style="font-size:18px;font-weight:600;color:#18a558;">IDLE</div></div>
+        <div><label>Inference Latency</label><div id="infraLatency" style="font-size:18px;font-weight:600;">— ms</div></div>
+      </div>
+
+      <div id="infraStatusBox" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;">Waiting for camera feed...</div>
+      <div class="student-message" id="infraMessage"></div>
+
+      <div class="student-list" style="margin-top:14px;">
+        <strong>Detected Equipment in Current Frame</strong>
+        <table class="student-table" style="margin-top:8px;">
+          <thead><tr><th>Asset Class</th><th>Confidence</th><th>Bounding Box (x, y, w, h)</th><th>Zone</th></tr></thead>
+          <tbody id="infraTableBody"><tr><td colspan="4">No infrastructure detected.</td></tr></tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:16px;">
+        <strong style="font-size:13px;">Infrastructure Zones Geometry (Normalized 0.0 - 1.0)</strong>
+        <textarea id="infraZones" rows="2" style="width:100%;margin-top:6px;padding:8px;border:1px solid #cbd3da;border-radius:7px;font-family:monospace;font-size:12px;">[]</textarea>
+      </div>
+
+      <div class="buttons" style="margin-top:10px;">
+        <button class="primary" id="testInfraBtn">Test Current Frame</button>
+        <button class="secondary" id="saveInfraZonesBtn">Save Zones</button>
+        <button class="danger" id="resetInfraBtn">Reset Observations</button>
+      </div>
+    </section>
+
+    <section class="card" id="complianceCard" style="margin-top:22px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <h2 style="margin:0;">Compliance Alerts & Officer Review</h2>
+          <div style="font-size:13px;color:#66737d;margin-top:4px;">
+            Real-time rule engine for attendance mismatches, low occupancy, equipment gaps, and camera health. Officers review, accept, or resolve alerts.
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="primary small-btn" id="evaluateComplianceBtn">Evaluate Rules Now</button>
+          <select id="alertStatusFilter" style="width:auto;padding:6px 10px;font-size:12px;">
+            <option value="ACTIVE">Filter: Active Alerts</option>
+            <option value="RESOLVED">Filter: Resolved Alerts</option>
+            <option value="ALL">Filter: All Alerts</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="student-message" id="complianceMessage" style="margin-top:10px;"></div>
+
+      <div id="activeAlertsContainer" style="margin-top:16px;">
+        <div style="padding:16px;text-align:center;color:#66737d;font-size:13px;background:#f9fafb;border-radius:8px;">
+          Checking compliance status...
+        </div>
+      </div>
+
+      <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <strong style="font-size:13px;">Recent Compliance Events & Audit Trail</strong>
+          <button class="secondary small-btn" id="refreshComplianceEventsBtn">Refresh Log</button>
+        </div>
+        <table class="student-table">
+          <thead><tr><th>Event ID</th><th>Fingerprint</th><th>Action</th><th>Timestamp</th></tr></thead>
+          <tbody id="complianceEventsTableBody"><tr><td colspan="4">No compliance events recorded.</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -768,6 +890,329 @@ loadSavedCameras();
   async function correct(){if(!sessionId){msg('Create a session first.');return;}try{const payload={session_id:sessionId,student_id:$('corrStudent').value.trim(),status:$('corrStatus').value,reason:$('corrReason').value.trim(),actor:$('corrActor').value.trim()||'admin'};if(!payload.student_id)throw Error('Student ID is required.');const r=await fetch('/api/attendance/correct',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.detail||'Correction failed.');msg('Attendance correction applied.',true);refresh();audit();}catch(e){msg(e.message);}}
   $('createAttendanceBtn').onclick=create;$('startAttendanceBtn').onclick=start;$('endAttendanceBtn').onclick=end;$('refreshAttendanceBtn').onclick=refresh;$('loadAuditBtn').onclick=audit;$('correctAttendanceBtn').onclick=correct;
   setInterval(refresh,1500);
+})();
+</script>
+
+<script>
+// Executive KPI updater
+(function(){
+  async function updateKPIs(){
+    try {
+      const res = await fetch('/api/dashboard/summary');
+      if (!res.ok) return;
+      const data = await res.json();
+      
+      // Camera Health
+      const cam = data.camera || {};
+      const elCam = document.getElementById('kpiCameraHealth');
+      if (elCam) {
+        if (!cam.connected) {
+          elCam.textContent = 'OFFLINE';
+          elCam.style.color = '#d92d20';
+        } else {
+          elCam.textContent = (cam.health || 'NORMAL').toUpperCase();
+          elCam.style.color = (cam.health === 'normal') ? '#18a558' : '#f79009';
+        }
+      }
+      const elFps = document.getElementById('kpiCameraFps');
+      if (elFps) {
+        const fps = Number(cam.actual_fps || cam.fps || 0).toFixed(1);
+        const age = cam.frame_age_seconds != null ? `${Number(cam.frame_age_seconds).toFixed(1)}s` : '—';
+        elFps.textContent = `FPS: ${fps} · Frame age: ${age}`;
+      }
+
+      // Occupancy
+      const occ = data.occupancy || {};
+      const elOcc = document.getElementById('kpiOccupancy');
+      if (elOcc) elOcc.textContent = occ.total || 0;
+      const elOccSub = document.getElementById('kpiOccupancySub');
+      if (elOccSub) elOccSub.textContent = `${occ.recognized || 0} recognized · ${occ.unknown || 0} unknown`;
+
+      // Attendance
+      const att = data.attendance || {};
+      const sum = att.summary || {};
+      const elAtt = document.getElementById('kpiAttendance');
+      if (elAtt) elAtt.textContent = `${Number(sum.attendance_percentage || 0).toFixed(1)}%`;
+      const elAttSub = document.getElementById('kpiAttendanceSub');
+      if (elAttSub) {
+        if (att.has_active_session) {
+          elAttSub.textContent = `${sum.present_count || 0}/${sum.total_students || 0} present (Active #${att.session?.id})`;
+        } else {
+          elAttSub.textContent = 'No active session';
+        }
+      }
+
+      // Infrastructure Assets
+      const infra = data.infrastructure || {};
+      const counts = infra.detected_counts || {};
+      const totalAssets = Object.values(counts).reduce((a, b) => a + Number(b), 0);
+      const elAssets = document.getElementById('kpiAssets');
+      if (elAssets) elAssets.textContent = totalAssets;
+      const elAssetsSub = document.getElementById('kpiAssetsSub');
+      if (elAssetsSub) {
+        const parts = Object.entries(counts).map(([k, v]) => `${k}: ${v}`);
+        elAssetsSub.textContent = parts.length ? parts.join(', ') : 'no items detected';
+      }
+
+      // Compliance Alerts
+      const comp = data.compliance || {};
+      const elAlerts = document.getElementById('kpiAlerts');
+      if (elAlerts) {
+        elAlerts.textContent = comp.active_alerts_count || 0;
+        elAlerts.style.color = (comp.critical_alerts_count > 0) ? '#d92d20' : (comp.active_alerts_count > 0 ? '#b54708' : '#18a558');
+      }
+      const elAlertsSub = document.getElementById('kpiAlertsSub');
+      if (elAlertsSub) {
+        elAlertsSub.textContent = `${comp.critical_alerts_count || 0} critical requiring review`;
+      }
+    } catch (_) {}
+  }
+  updateKPIs();
+  setInterval(updateKPIs, 2000);
+})();
+</script>
+
+<script>
+// Infrastructure Section Logic
+(function(){
+  const $ = id => document.getElementById(id);
+  function setMsg(text, ok = false) {
+    $('infraMessage').textContent = text;
+    $('infraMessage').style.color = ok ? '#16803c' : '#b42318';
+  }
+
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function renderInfrastructure(data) {
+    const counts = data.current_counts || {};
+    $('infraChairs').textContent = counts.chair || 0;
+    $('infraTables').textContent = counts.table || 0;
+    $('infraLaptops').textContent = counts.laptop || 0;
+    $('infraMonitors').textContent = counts.tv_monitor || 0;
+
+    const state = data.detection_state || 'IDLE';
+    $('infraState').textContent = state;
+    $('infraState').style.color = state === 'SUCCESS' ? '#18a558' : '#b42318';
+
+    const detector = data.detector || {};
+    $('infraLatency').textContent = `${Number(detector.last_inference_ms || 0).toFixed(1)} ms`;
+
+    $('infraStatusBox').innerHTML = `<strong>YOLOv8n ONNX Infrastructure Detector</strong> · engine ${esc(detector.engine || 'onnxruntime')} · state: ${esc(state)} · valid: ${data.detection_valid ? 'yes' : 'no'} · inference count: ${detector.inference_count || 0}`;
+
+    const detections = detector.last_detections || [];
+    const tbody = $('infraTableBody');
+    if (!detections.length) {
+      tbody.innerHTML = '<tr><td colspan="4">No equipment detected in current frame.</td></tr>';
+    } else {
+      tbody.innerHTML = detections.map(d => {
+        const box = d.bbox ? `[${d.bbox.join(', ')}]` : '—';
+        return `<tr>
+          <td><strong>${esc(d.class_name)}</strong></td>
+          <td>${(Number(d.confidence || 0) * 100).toFixed(1)}%</td>
+          <td><code>${esc(box)}</code></td>
+          <td>${esc(d.zone_id || 'all')}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    if (Array.isArray(data.zones)) {
+      $('infraZones').value = JSON.stringify(data.zones);
+    }
+  }
+
+  async function refreshInfra() {
+    try {
+      const res = await fetch('/api/infrastructure/status');
+      if (!res.ok) return;
+      renderInfrastructure(await res.json());
+    } catch (_) {}
+  }
+
+  async function testCurrentFrame() {
+    setMsg('Running infrastructure inference on current camera frame...');
+    try {
+      const res = await fetch('/api/infrastructure/test', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Test failed.');
+      setMsg(`Detected ${data.detected_count || 0} equipment items.`, true);
+      refreshInfra();
+    } catch (e) {
+      setMsg(e.message);
+    }
+  }
+
+  async function saveZones() {
+    try {
+      let zones;
+      try {
+        zones = JSON.parse($('infraZones').value);
+      } catch (_) {
+        throw new Error('Zone JSON is not valid syntax.');
+      }
+      const res = await fetch('/api/infrastructure/zones', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zones }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not save zones.');
+      setMsg('Infrastructure zones saved successfully.', true);
+      refreshInfra();
+    } catch (e) {
+      setMsg(e.message);
+    }
+  }
+
+  async function resetObservations() {
+    try {
+      const res = await fetch('/api/infrastructure/reset', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Reset failed.');
+      setMsg('Observations reset.', true);
+      refreshInfra();
+    } catch (e) {
+      setMsg(e.message);
+    }
+  }
+
+  $('testInfraBtn').onclick = testCurrentFrame;
+  $('saveInfraZonesBtn').onclick = saveZones;
+  $('resetInfraBtn').onclick = resetObservations;
+
+  refreshInfra();
+  setInterval(refreshInfra, 2000);
+})();
+</script>
+
+<script>
+// Compliance Alerts & Officer Review Logic
+(function(){
+  const $ = id => document.getElementById(id);
+  function setMsg(text, ok = false) {
+    $('complianceMessage').textContent = text;
+    $('complianceMessage').style.color = ok ? '#16803c' : '#b42318';
+  }
+
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function renderAlerts(alerts) {
+    const container = $('activeAlertsContainer');
+    if (!alerts || !alerts.length) {
+      container.innerHTML = '<div style="padding:16px;text-align:center;color:#027a48;background:#ecfdf3;border:1px solid #a6f4c5;border-radius:8px;font-size:13px;">✔ No compliance alerts. Classroom operations are within sanctioned thresholds.</div>';
+      return;
+    }
+
+    container.innerHTML = alerts.map(a => {
+      const sev = (a.severity || 'medium').toLowerCase();
+      const isResolved = a.status === 'RESOLVED';
+      const badgeClass = isResolved ? 'badge-resolved' : (sev === 'high' ? 'badge-high' : (sev === 'medium' ? 'badge-medium' : 'badge-low'));
+      const firstSeen = a.first_seen_at ? new Date(a.first_seen_at).toLocaleTimeString() : '—';
+      const lastSeen = a.last_seen_at ? new Date(a.last_seen_at).toLocaleTimeString() : '—';
+      const conf = (Number(a.confidence || 0) * 100).toFixed(0);
+
+      return `
+        <div class="alert-item ${sev} ${isResolved ? 'resolved' : ''}">
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span class="badge ${badgeClass}">${esc(a.severity)}</span>
+              <strong style="font-size:14px;color:#17202a;">${esc(a.title)}</strong>
+              <span style="font-size:11px;color:#66737d;">(${esc(a.rule_id)})</span>
+            </div>
+            <div style="font-size:12px;color:#475467;line-height:1.4;">
+              Scope: <strong>${esc(a.scope_id)}</strong> · Confidence: <strong>${conf}%</strong> · First seen: ${firstSeen} · Last seen: ${lastSeen} · Repeated observations: <strong>${a.consecutive_evidence || 1}</strong>
+            </div>
+            ${a.resolution_reason ? `<div style="margin-top:6px;font-size:12px;color:#027a48;background:#f0fdf4;padding:4px 8px;border-radius:4px;">Resolved: ${esc(a.resolution_reason)} (${new Date(a.resolved_at).toLocaleTimeString()})</div>` : ''}
+          </div>
+          <div style="margin-left:12px;display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+            ${!isResolved ? `
+              <button class="primary small-btn resolve-alert-btn" data-id="${a.id}">Resolve Alert</button>
+            ` : `<span class="badge badge-resolved">Resolved</span>`}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Attach resolve handlers
+    container.querySelectorAll('.resolve-alert-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const alertId = btn.getAttribute('data-id');
+        const reason = prompt('Enter officer resolution reason / action taken:', 'Verified by inspection officer');
+        if (!reason) return;
+        try {
+          const res = await fetch('/api/compliance/alerts/' + encodeURIComponent(alertId) + '/resolve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Could not resolve alert.');
+          setMsg(`Alert #${alertId} resolved.`, true);
+          loadAlerts();
+          loadComplianceEvents();
+        } catch (e) {
+          setMsg(e.message);
+        }
+      };
+    });
+  }
+
+  async function loadAlerts() {
+    try {
+      const filter = $('alertStatusFilter').value;
+      const res = await fetch(`/api/compliance/alerts?status=${encodeURIComponent(filter)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      renderAlerts(data.alerts || []);
+    } catch (_) {}
+  }
+
+  async function loadComplianceEvents() {
+    try {
+      const res = await fetch('/api/compliance/events?limit=15');
+      if (!res.ok) return;
+      const data = await res.json();
+      const events = data.events || [];
+      const tbody = $('complianceEventsTableBody');
+      if (!events.length) {
+        tbody.innerHTML = '<tr><td colspan="4">No compliance events recorded.</td></tr>';
+      } else {
+        tbody.innerHTML = events.map(e => `
+          <tr>
+            <td>#${e.id}</td>
+            <td><small><code>${esc(e.fingerprint.slice(0, 24))}…</code></small></td>
+            <td><span class="badge badge-low">${esc(e.event_type)}</span></td>
+            <td>${e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—'}</td>
+          </tr>
+        `).join('');
+      }
+    } catch (_) {}
+  }
+
+  async function evaluateRulesNow() {
+    setMsg('Evaluating compliance rules against current live metrics...');
+    try {
+      const res = await fetch('/api/compliance/evaluate', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Evaluation failed.');
+      setMsg(`Compliance evaluated: ${data.active_alerts?.length || 0} active alert(s).`, true);
+      loadAlerts();
+      loadComplianceEvents();
+    } catch (e) {
+      setMsg(e.message);
+    }
+  }
+
+  $('alertStatusFilter').onchange = loadAlerts;
+  $('evaluateComplianceBtn').onclick = evaluateRulesNow;
+  $('refreshComplianceEventsBtn').onclick = loadComplianceEvents;
+
+  loadAlerts();
+  loadComplianceEvents();
+  setInterval(loadAlerts, 3000);
 })();
 </script>
 </body>
