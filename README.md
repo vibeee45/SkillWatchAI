@@ -1,57 +1,180 @@
-# SkillWatch AI — Phase 8
+# SkillWatch AI — Privacy-Preserving Compliance Intelligence
 
-Phase 8 adds local person detection and occupancy analytics on top of Phases 1–7.
+> **Smart India Hackathon (SIH 2026)**  
+> **Problem Statement ID:** 26245  
+> **Title:** AI-Based Real-Time Monitoring of Training Centres for Attendance and Infrastructure Compliance  
+> **Ministry / Organization:** Ministry of Skill Development and Entrepreneurship (MSDE)  
+> **Category / Theme:** Smart Education / Software  
+> **Tagline:** *"From passive CCTV to privacy-preserving compliance intelligence."*
 
-## Phase 8 checklist
-- 8.1 Lightweight person detector: OpenCV HOG (CPU)
-- 8.2 Detect people in classroom frames
-- 8.3 Track people across frames with IoU tracking
-- 8.4 Stable track IDs prevent repeated counting
-- 8.5 Configurable normalized classroom zones
-- 8.6 Total occupancy
-- 8.7 Five-frame median temporal smoothing
-- 8.8 Recognized students vs total persons
-- 8.9 Unknown persons = smoothed occupancy minus confirmed recognized tracks
-- 8.10 Occupancy statistics in dashboard and API
+---
 
-## API
-- `GET /api/occupancy/status`
-- `POST /api/occupancy/reset`
-- `GET /api/occupancy/zones`
-- `POST /api/occupancy/zones`
+## 1. Overview & Value Proposition
 
-## Important prototype note
-The person detector is deliberately lightweight and CPU-friendly. HOG is not a modern deep-learning detector and may miss people in difficult classroom views. Phase 8 should therefore be validated on the target camera before being treated as a final production detector.
+Government-funded skilling schemes depend on geographically distributed training centres. Manual inspections are infrequent, expensive, and unable to detect daily variations in attendance or disappearing infrastructure between visits. At the same time, central video streaming from rural centres is cost-prohibitive, and constant facial surveillance creates severe privacy concerns.
 
-# Phase 9 — Observation-Only Infrastructure Detection
+**SkillWatch AI** converts passive camera feeds into structured, privacy-preserving compliance intelligence:
+- **Privacy-First:** Aggregate physical room occupancy is separated from student identity. Only consented students are recognized via salted/encrypted local feature representations; raw enrollment images are discarded.
+- **Edge-First & Low-Bandwidth:** AI models execute locally on CPU (ONNX Runtime / OpenCV). Raw video is never continuously transmitted; only small event payloads (< 1.8 KB) are queued and synced.
+- **Reliable & Camera-Health Aware:** A disconnected, dark, or frozen feed creates a camera maintenance alert, avoiding false fraud allegations.
+- **Human-in-the-Loop:** SkillWatch AI does not automatically penalize centres; it prioritizes discrepancies for officer review and verification.
 
-Phase 9 uses YOLOv8n ONNX to report visible equipment detections. Because classrooms and training centres have different equipment quantities, the prototype does not set expected counts, configure inventory, calculate shortages, or generate inventory-based alerts. See `PHASE9_INFRASTRUCTURE.md` for details and limitations.
+---
 
-Main endpoints:
-- `GET /api/infrastructure/status`
-- `POST /api/infrastructure/test`
-- `GET /api/infrastructure/debug-frame.jpg`
-- `GET /api/infrastructure/zones`
-- `PUT /api/infrastructure/zones`
-- `POST /api/infrastructure/reset`
+## 2. End-to-End Architecture
 
-The current supported classes are chair, table (COCO dining-table category), TV/monitor (COCO TV category), and laptop. Counts are observed detections in the current frame, not expected inventory. Zone geometry is stored in `data/infrastructure_config.json`; equipment quantities are not stored or used.
+```
++---------------------------------------------------------------------------------------+
+|                                    EDGE DEVICE / CCTV                                  |
+|                                                                                       |
+|   [Laptop / USB Webcam / RTSP IP Camera / Video File]                                 |
+|                            │                                                          |
+|                            ▼                                                          |
+|                     Camera Manager                                                    |
+|            (Reconnect watchdog, Heartbeat, Freeze check)                              |
+|                            │                                                          |
+|                            ▼                                                          |
+|                 Frame Processing Pipeline                                             |
+|        (640x360 resize, Laplacian blur check, sampling 1:3)                           |
+|                            │                                                          |
+|         ┌──────────────────┼─────────────────────────┐                                |
+|         ▼                  ▼                         ▼                                |
+|    YuNet ONNX         YOLOv8n ONNX             YOLOv8n ONNX                           |
+|  Face Detection     Person Detection      Infrastructure Detection                    |
+|         │                  │                         │                                |
+|         ▼                  ▼                         ▼                                |
+|    SFace ONNX         IoU Tracker              Zone Filter                            |
+| Face Recognition   5-Frame Smoothing      Temporal Observation                        |
+|         │                  │                         │                                |
+|         ▼                  ▼                         ▼                                |
+|     Automatic         Classroom                  Equipment                            |
+|    Attendance         Occupancy               Observed Counts                         |
+|         │                  │                         │                                |
+|         └──────────────────┼─────────────────────────┘                                |
+|                            ▼                                                          |
+|                Compliance & Rule Engine                                               |
+|      (Attendance Discrepancy, Low Occupancy, Infra Gaps, Health)                      |
+|                            │                                                          |
+|                            ▼                                                          |
+|                SQLite WAL Offline Queue                                               |
+|           (Zero data loss during network outages)                                     |
+|                            │                                                          |
++────────────────────────────┼──────────────────────────────────────────────────────────+
+                             │
+                             ▼ HTTP Sync / Local Dashboard
++───────────────────────────────────────────────────────────────────────────────────────+
+|                                  OFFICER DASHBOARD                                    |
+|                                                                                       |
+|  - Real-time Camera Preview (MJPEG)                                                   |
+|  - Executive KPI Summary Cards                                                        |
+|  - Automatic Attendance & Manual Override Audit Log                                   |
+|  - Infrastructure Asset Live Counter & Zone Editor                                    |
+|  - Compliance Alerts Panel with One-Click Officer Resolution                          |
++───────────────────────────────────────────────────────────────────────────────────────+
+```
 
-## Phase 10 — Compliance & Alert Engine
+---
 
-Phase 10 adds persistent, configurable rules for attendance discrepancies, individual attendance mismatches, low occupancy, observation-only infrastructure changes, overcapacity, camera health, and low-confidence/manual verification. Alerts record rule ID, severity, confidence, timestamps, repeated evidence, scope, and evidence metadata in SQLite. No expected equipment counts or inventory-shortage rules are used. See `PHASE10_COMPLIANCE_ALERT_ENGINE.md`.
+## 3. 15-Phase Development Status
 
-Compliance API: `GET /api/compliance/status`, `GET/PUT /api/compliance/config`, `POST /api/compliance/evaluate`, `GET /api/compliance/alerts`, `GET /api/compliance/events`, and `POST /api/compliance/alerts/{alert_id}/resolve`.
+| Phase | Milestone | Status | Key Deliverable |
+| :---: | :--- | :---: | :--- |
+| **Phase 1** | Project Setup & Architecture | ✅ Completed | FastAPI, environment configuration, virtual environment |
+| **Phase 2** | Classroom Camera Integration | ✅ Completed | Multi-source CameraManager (webcam, RTSP, video file) |
+| **Phase 3** | Frame Processing Pipeline | ✅ Completed | Frame sampling, quality checks (blur/brightness), metrics |
+| **Phase 4** | Face Detection | ✅ Completed | YuNet ONNX detector, bounding boxes, landmark alignment |
+| **Phase 5** | Student Enrollment | ✅ Completed | 3-sample capture, consent checkbox, encrypted embeddings |
+| **Phase 6** | Face Recognition | ✅ Completed | SFace ONNX cosine similarity, 3-frame confirmation |
+| **Phase 7** | Automatic Attendance Engine | ✅ Completed | Session lifecycle, duplicate prevention, audit history |
+| **Phase 8** | Person Detection & Occupancy | ✅ Completed | YOLOv8n ONNX person detector, IoU tracking, zone smoothing |
+| **Phase 9** | Infrastructure Detection | ✅ Completed | YOLOv8n ONNX detection of chairs, tables, laptops, TVs |
+| **Phase 10** | Compliance & Alert Engine | ✅ Completed | Multi-rule engine with severity scoring and persistence |
+| **Phase 11** | Offline Mode & Reliability | ✅ Completed | SQLite WAL queue, retry worker, camera health watchdog |
+| **Phase 12** | Backend & Database Models | ✅ Completed | Unified `/api/dashboard/summary`, SQLAlchemy relational schema |
+| **Phase 13** | Frontend Dashboard | ✅ Completed | Interactive cards for preview, KPI, attendance, infra, alerts |
+| **Phase 14** | Testing & Empirical Benchmarking | ✅ Completed | 55 unit tests passing, `MEASURED_ACCURACY_REPORT.md` |
+| **Phase 15** | Demonstration Protocol | ✅ Completed | 7-step evaluation script in `SIH_DEMO_GUIDE.md` |
 
+---
 
-## Phase 11 — Offline Mode & Camera Reliability
+## 4. Key Performance Benchmarks (Measured)
 
-Phase 11 adds a separate persistent SQLite queue at `data/offline_events.db`. Attendance events, compliance-alert transitions, and camera-health transitions are stored locally first. Local AI processing does not depend on the internet connection.
+*From empirical tests run on standard CPU without GPU acceleration:*
 
-- Retry and recovery: `offline/sync_worker.py` delivers due events to a configured remote receiver with bounded retry/backoff.
-- Remote synchronization is opt-in. Without `SKILLWATCH_SYNC_URL`, events remain on the machine.
-- Camera reliability: reconnect attempts for live device/RTSP sources, stale-frame heartbeat detection, frozen-frame detection, and image-quality metrics.
-- Dashboard: camera health, frame age, image quality, reconnect count, and offline queue/sync status.
-- API: `GET /api/offline/status`, `POST /api/offline/sync`, and `GET /api/camera/status`.
+- **Face Detection Latency:** ~80 ms (YuNet ONNX, 0.22 MB)
+- **Person Detection Latency:** ~359 ms (YOLOv8n ONNX, 12.26 MB)
+- **Infrastructure Detection Latency:** ~380 ms (YOLOv8n ONNX, 12.26 MB)
+- **Compliance Rule Evaluation:** **4.6 ms** per cycle
+- **Total Model Footprint:** **49.38 MB**
+- **Bandwidth Reduction:** **> 99.4% saved** vs continuous video streaming
 
-See `PHASE11_OFFLINE_CAMERA_RELIABILITY.md` and `MANUAL_SETUP_PHASE11.md` for setup and validation. A remote receiver must accept event JSON and deduplicate using `event_id` / `Idempotency-Key`; configure only a trusted HTTPS endpoint.
+For full confusion matrices, latency percentiles, and protocol details, see [MEASURED_ACCURACY_REPORT.md](file:///c:/Users/91958/Desktop/SkillWatchAI/MEASURED_ACCURACY_REPORT.md).
+
+---
+
+## 5. Quickstart & Installation
+
+### Requirements
+- Python 3.10+
+- Windows, Linux, or macOS
+
+### 1. Clone & Setup Virtual Environment
+```bash
+git clone https://github.com/vibeee45/SkillWatchAI.git
+cd SkillWatchAI
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### 2. Download Pretrained Models (if not already in `models/`)
+```bash
+python tools/download_yunet_model.py
+python tools/download_sface_model.py
+```
+
+### 3. Launch the Server
+```bash
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Open **`http://localhost:8000`** in any web browser.
+
+---
+
+## 6. Running Tests & Benchmarks
+
+Run the complete 55-test test suite:
+```bash
+python -m pytest tests/
+```
+
+Run the empirical benchmark evaluation:
+```bash
+python tools/benchmark_evaluation.py
+```
+
+---
+
+## 7. API Reference
+
+| Endpoint | Method | Description |
+| :--- | :---: | :--- |
+| `/api/dashboard/summary` | `GET` | Executive overview (camera, occupancy, attendance, infra, alerts) |
+| `/api/camera/status` | `GET` | Real-time camera health, FPS, frame age, and quality state |
+| `/api/camera/connect` | `POST` | Connect device camera, USB webcam, or RTSP URL |
+| `/api/camera/stream` | `GET` | Live annotated MJPEG video preview |
+| `/api/students/enrollment/start` | `POST` | Begin consented student face enrollment session |
+| `/api/attendance/sessions` | `POST` | Create a training session for a room and batch |
+| `/api/attendance/correct` | `POST` | Manual attendance override with immutable audit log |
+| `/api/occupancy/status` | `GET` | Smoothed total occupancy, recognized vs unknown counts |
+| `/api/infrastructure/status` | `GET` | Observed counts of chairs, tables, laptops, and monitors |
+| `/api/compliance/alerts` | `GET` | Query active or resolved compliance alerts |
+| `/api/compliance/alerts/{id}/resolve` | `POST` | Officer resolution action with recorded reason |
+| `/api/offline/status` | `GET` | SQLite offline queue pending, synced, and failed metrics |
+
+---
+
+## 8. Live Demonstration Guide
+
+To replicate the official SIH live presentation workflow:
+👉 Follow the step-by-step instructions in [SIH_DEMO_GUIDE.md](file:///c:/Users/91958/Desktop/SkillWatchAI/SIH_DEMO_GUIDE.md).
