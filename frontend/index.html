@@ -477,43 +477,46 @@
       </section>
     </div>
 
-    <section class="card" id="complianceCard" style="margin-top:22px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-        <div>
-          <h2 style="margin:0;">Compliance Alerts & Officer Review</h2>
-          <div style="font-size:13px;color:#66737d;margin-top:4px;">
-            Real-time rule engine for attendance mismatches, low occupancy, equipment gaps, and camera health. Officers review, accept, or resolve alerts.
+    <!-- VIEW 6: COMPLIANCE ALERTS & OFFICER REVIEW -->
+    <div id="view-compliance" class="page-view">
+      <section class="card" id="complianceCard">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div>
+            <h2 style="margin:0;">Compliance Alerts & Officer Review</h2>
+            <div style="font-size:13px;color:#66737d;margin-top:4px;">
+              Real-time rule engine for attendance mismatches, low occupancy, equipment gaps, and camera health. Officers review, accept, or resolve alerts.
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="primary small-btn" id="evaluateComplianceBtn">Evaluate Rules Now</button>
+            <select id="alertStatusFilter" style="width:auto;padding:6px 10px;font-size:12px;">
+              <option value="ACTIVE">Filter: Active Alerts</option>
+              <option value="RESOLVED">Filter: Resolved Alerts</option>
+              <option value="ALL">Filter: All Alerts</option>
+            </select>
           </div>
         </div>
-        <div style="display:flex;gap:8px;">
-          <button class="primary small-btn" id="evaluateComplianceBtn">Evaluate Rules Now</button>
-          <select id="alertStatusFilter" style="width:auto;padding:6px 10px;font-size:12px;">
-            <option value="ACTIVE">Filter: Active Alerts</option>
-            <option value="RESOLVED">Filter: Resolved Alerts</option>
-            <option value="ALL">Filter: All Alerts</option>
-          </select>
-        </div>
-      </div>
 
-      <div class="student-message" id="complianceMessage" style="margin-top:10px;"></div>
+        <div class="student-message" id="complianceMessage" style="margin-top:10px;"></div>
 
-      <div id="activeAlertsContainer" style="margin-top:16px;">
-        <div style="padding:16px;text-align:center;color:#66737d;font-size:13px;background:#f9fafb;border-radius:8px;">
-          Checking compliance status...
+        <div id="activeAlertsContainer" style="margin-top:16px;">
+          <div style="padding:16px;text-align:center;color:#66737d;font-size:13px;background:#f9fafb;border-radius:8px;">
+            Checking compliance status...
+          </div>
         </div>
-      </div>
 
-      <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:14px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <strong style="font-size:13px;">Recent Compliance Events & Audit Trail</strong>
-          <button class="secondary small-btn" id="refreshComplianceEventsBtn">Refresh Log</button>
+        <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <strong style="font-size:13px;">Recent Compliance Events & Audit Trail</strong>
+            <button class="secondary small-btn" id="refreshComplianceEventsBtn">Refresh Log</button>
+          </div>
+          <table class="student-table">
+            <thead><tr><th>Event ID</th><th>Fingerprint</th><th>Action</th><th>Timestamp</th></tr></thead>
+            <tbody id="complianceEventsTableBody"><tr><td colspan="4">No compliance events recorded.</td></tr></tbody>
+          </table>
         </div>
-        <table class="student-table">
-          <thead><tr><th>Event ID</th><th>Fingerprint</th><th>Action</th><th>Timestamp</th></tr></thead>
-          <tbody id="complianceEventsTableBody"><tr><td colspan="4">No compliance events recorded.</td></tr></tbody>
-        </table>
-      </div>
-    </section>
+      </section>
+    </div>
   </main>
 
 <script>
