@@ -337,91 +337,94 @@
   </div>
 </section>
 
-<section class="card student-card">
-      <h2>Student Enrollment</h2>
-      <div style="font-size:13px;color:#66737d;line-height:1.5;">
-        Register a consented/staged demo student. The system captures 3 valid face samples, creates a protected local representation, and does not persist raw enrollment frames.
-      </div>
-
-      <div class="student-grid" style="margin-top:12px;">
-        <div>
-          <label for="studentId">Student ID</label>
-          <input id="studentId" placeholder="STU-001" />
+    <!-- VIEW 3: STUDENT ENROLLMENT & IDENTITY MANAGEMENT -->
+    <div id="view-students" class="page-view">
+      <section class="card student-card">
+        <h2>Student Enrollment</h2>
+        <div style="font-size:13px;color:#66737d;line-height:1.5;">
+          Register a consented/staged demo student. The system captures 3 valid face samples, creates a protected local representation, and does not persist raw enrollment frames.
         </div>
-        <div>
-          <label for="studentName">Student Name</label>
-          <input id="studentName" placeholder="Demo Student" />
-        </div>
-        <div>
-          <label for="studentBatch">Batch</label>
-          <input id="studentBatch" placeholder="Batch A - 2026" />
-        </div>
-      </div>
 
-      <label class="consent">
-        <input type="checkbox" id="consentConfirm" />
-        <span>I confirm this is a consented/staged demo enrollment and the student has authorized the use of face data for this prototype.</span>
-      </label>
-
-      <div class="student-actions">
-        <button class="primary" id="startEnrollmentBtn">Start Enrollment</button>
-        <button class="secondary" id="captureSampleBtn" disabled>Capture Sample</button>
-        <button class="primary" id="saveEnrollmentBtn" disabled>Save / Update Student</button>
-        <button class="secondary" id="cancelEnrollmentBtn" disabled>Cancel</button>
-      </div>
-
-      <div class="student-progress" id="enrollmentProgress">Enrollment not started.</div>
-      <div class="student-message" id="studentMessage"></div>
-
-      <div class="student-list">
-        <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px;">
-          <strong>Enrolled Students</strong>
-          <div style="display:flex;gap:8px;">
-            <input id="studentSearch" placeholder="Search ID, name or batch" style="max-width:280px;" />
-            <button class="secondary small-btn" id="refreshStudentsBtn">Refresh</button>
+        <div class="student-grid" style="margin-top:12px;">
+          <div>
+            <label for="studentId">Student ID</label>
+            <input id="studentId" placeholder="STU-001" />
+          </div>
+          <div>
+            <label for="studentName">Student Name</label>
+            <input id="studentName" placeholder="Demo Student" />
+          </div>
+          <div>
+            <label for="studentBatch">Batch</label>
+            <input id="studentBatch" placeholder="Batch A - 2026" />
           </div>
         </div>
-        <table class="student-table">
-          <thead><tr><th>Student ID</th><th>Name</th><th>Batch</th><th>Samples</th><th>Quality</th><th>Action</th></tr></thead>
-          <tbody id="studentTableBody"><tr><td colspan="6">No enrolled students.</td></tr></tbody>
-        </table>
-      </div>
-    </section>
 
-    <section class="card" id="recognitionCard" style="margin-top:22px;">
-      <h2>Face Recognition</h2>
-      <div style="font-size:13px;color:#66737d;line-height:1.5;">
-        SFace compares detected faces with protected enrolled representations. Identity is confirmed only after multiple consistent frames; low-confidence matches remain Unknown.
-      </div>
-      <div class="student-grid" style="margin-top:12px;">
-        <div>
-          <label for="recognitionThreshold">Recognition Threshold</label>
-          <input id="recognitionThreshold" type="number" min="0" max="1" step="0.01" value="0.45" />
+        <label class="consent">
+          <input type="checkbox" id="consentConfirm" />
+          <span>I confirm this is a consented/staged demo enrollment and the student has authorized the use of face data for this prototype.</span>
+        </label>
+
+        <div class="student-actions">
+          <button class="primary" id="startEnrollmentBtn">Start Enrollment</button>
+          <button class="secondary" id="captureSampleBtn" disabled>Capture Sample</button>
+          <button class="primary" id="saveEnrollmentBtn" disabled>Save / Update Student</button>
+          <button class="secondary" id="cancelEnrollmentBtn" disabled>Cancel</button>
         </div>
-        <div>
-          <label for="recognitionConfirmFrames">Confirmation Frames</label>
-          <input id="recognitionConfirmFrames" type="number" min="1" max="20" value="3" />
+
+        <div class="student-progress" id="enrollmentProgress">Enrollment not started.</div>
+        <div class="student-message" id="studentMessage"></div>
+
+        <div class="student-list">
+          <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px;">
+            <strong>Enrolled Students</strong>
+            <div style="display:flex;gap:8px;">
+              <input id="studentSearch" placeholder="Search ID, name or batch" style="max-width:280px;" />
+              <button class="secondary small-btn" id="refreshStudentsBtn">Refresh</button>
+            </div>
+          </div>
+          <table class="student-table">
+            <thead><tr><th>Student ID</th><th>Name</th><th>Batch</th><th>Samples</th><th>Quality</th><th>Action</th></tr></thead>
+            <tbody id="studentTableBody"><tr><td colspan="6">No enrolled students.</td></tr></tbody>
+          </table>
         </div>
-        <div>
-          <label for="recognitionSwitchFrames">Switch Confirmation Frames</label>
-          <input id="recognitionSwitchFrames" type="number" min="1" max="20" value="3" />
+      </section>
+
+      <section class="card" id="recognitionCard" style="margin-top:22px;">
+        <h2>Face Recognition</h2>
+        <div style="font-size:13px;color:#66737d;line-height:1.5;">
+          SFace compares detected faces with protected enrolled representations. Identity is confirmed only after multiple consistent frames; low-confidence matches remain Unknown.
         </div>
-      </div>
-      <div class="student-actions">
-        <button class="primary" id="saveRecognitionConfigBtn">Apply Recognition Settings</button>
-        <button class="secondary" id="testRecognitionBtn">Test Current Frame</button>
-        <button class="secondary" id="resetRecognitionBtn">Reset Recognition State</button>
-      </div>
-      <div class="student-progress" id="recognitionStatusBox">Recognition status loading...</div>
-      <div class="student-message" id="recognitionMessage"></div>
-      <div class="student-list">
-        <strong>Latest Recognition Results</strong>
-        <table class="student-table" style="margin-top:10px;">
-          <thead><tr><th>Track</th><th>Student</th><th>Status</th><th>Similarity</th><th>Timestamp</th></tr></thead>
-          <tbody id="recognitionTableBody"><tr><td colspan="5">No recognition result yet.</td></tr></tbody>
-        </table>
-      </div>
-    </section>
+        <div class="student-grid" style="margin-top:12px;">
+          <div>
+            <label for="recognitionThreshold">Recognition Threshold</label>
+            <input id="recognitionThreshold" type="number" min="0" max="1" step="0.01" value="0.45" />
+          </div>
+          <div>
+            <label for="recognitionConfirmFrames">Confirmation Frames</label>
+            <input id="recognitionConfirmFrames" type="number" min="1" max="20" value="3" />
+          </div>
+          <div>
+            <label for="recognitionSwitchFrames">Switch Confirmation Frames</label>
+            <input id="recognitionSwitchFrames" type="number" min="1" max="20" value="3" />
+          </div>
+        </div>
+        <div class="student-actions">
+          <button class="primary" id="saveRecognitionConfigBtn">Apply Recognition Settings</button>
+          <button class="secondary" id="testRecognitionBtn">Test Current Frame</button>
+          <button class="secondary" id="resetRecognitionBtn">Reset Recognition State</button>
+        </div>
+        <div class="student-progress" id="recognitionStatusBox">Recognition status loading...</div>
+        <div class="student-message" id="recognitionMessage"></div>
+        <div class="student-list">
+          <strong>Latest Recognition Results</strong>
+          <table class="student-table" style="margin-top:10px;">
+            <thead><tr><th>Track</th><th>Student</th><th>Status</th><th>Similarity</th><th>Timestamp</th></tr></thead>
+            <tbody id="recognitionTableBody"><tr><td colspan="5">No recognition result yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
 
     <section class="card" id="infrastructureCard" style="margin-top:22px;">
       <h2>Infrastructure & Equipment Monitoring</h2>
