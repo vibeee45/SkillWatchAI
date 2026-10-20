@@ -517,6 +517,78 @@
         </div>
       </section>
     </div>
+    <!-- VIEW 7: SYSTEM RELIABILITY, WATCHDOG & OFFLINE QUEUE -->
+    <div id="view-system" class="page-view">
+      <section class="card" id="systemCard">
+        <h2>System Health, Watchdog & Offline Resilience</h2>
+        <div style="font-size:13px;color:#66737d;line-height:1.5;">
+          On-device camera watchdog monitors frame age, image clarity, and freeze states. An encrypted SQLite Write-Ahead Log (WAL) event queue buffers all telemetry locally so zero data is lost during network blackouts.
+        </div>
+
+        <div class="student-grid" style="margin-top:16px;">
+          <div class="kpi-card">
+            <div class="kpi-title">Camera Watchdog</div>
+            <div class="kpi-value" id="sysCamState" style="font-size:20px;">CHECKING</div>
+            <div class="kpi-sub" id="sysCamSub">Heartbeat monitoring active</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Offline Event Queue</div>
+            <div class="kpi-value" id="sysQueueState" style="font-size:20px;">0 PENDING</div>
+            <div class="kpi-sub" id="sysQueueSub">Local SQLite WAL storage</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Pipeline Throughput</div>
+            <div class="kpi-value" id="sysPipelineFps" style="font-size:20px;">0 FPS</div>
+            <div class="kpi-sub" id="sysPipelineSub">Sampling 1 of 3 frames</div>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:16px;">
+          <strong style="font-size:14px;">Camera Feed Quality & Watchdog Metrics</strong>
+          <table class="student-table" style="margin-top:8px;">
+            <tbody>
+              <tr><td style="width:240px;font-weight:600;">Feed Connection State</td><td id="sysTableConnected">Disconnected</td></tr>
+              <tr><td style="font-weight:600;">Overall Camera Health</td><td id="sysTableHealth">Unknown</td></tr>
+              <tr><td style="font-weight:600;">Last Frame Received</td><td id="sysTableLastFrame">—</td></tr>
+              <tr><td style="font-weight:600;">Frame Age (Heartbeat)</td><td id="sysTableFrameAge">—</td></tr>
+              <tr><td style="font-weight:600;">Image Sharpness / Quality</td><td id="sysTableQuality">—</td></tr>
+              <tr><td style="font-weight:600;">Automatic Reconnect Attempts</td><td id="sysTableReconnects">0</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+            <div>
+              <strong style="font-size:14px;">Offline SQLite Event Queue & Synchronization</strong>
+              <div style="font-size:12px;color:#66737d;margin-top:2px;">Events persist locally in <code>data/offline_events.db</code> with exponential backoff retry.</div>
+            </div>
+            <button class="primary small-btn" id="sysSyncNowBtn">Sync Queued Events Now</button>
+          </div>
+          <table class="student-table" style="margin-top:8px;">
+            <tbody>
+              <tr><td style="width:240px;font-weight:600;">Pending Unsynced Events</td><td id="sysQueuePending">0</td></tr>
+              <tr><td style="font-weight:600;">Events Currently Syncing</td><td id="sysQueueSyncing">0</td></tr>
+              <tr><td style="font-weight:600;">Total Synced Events</td><td id="sysQueueSynced">0</td></tr>
+              <tr><td style="font-weight:600;">Failed Attempts</td><td id="sysQueueFailed">0</td></tr>
+              <tr><td style="font-weight:600;">Remote Receiver URL</td><td id="sysSyncUrl">Not configured (Events remain safely on edge machine)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:16px;">
+          <strong style="font-size:14px;">Deployed AI Models & Engine Specifications</strong>
+          <table class="student-table" style="margin-top:8px;">
+            <thead><tr><th>Model</th><th>Framework</th><th>Size</th><th>Role</th><th>Inference Target</th></tr></thead>
+            <tbody>
+              <tr><td><strong>YuNet</strong></td><td>OpenCV DNN / ONNX</td><td>0.22 MB</td><td>Face Detection & Landmarks</td><td>Local CPU (~80 ms)</td></tr>
+              <tr><td><strong>SFace</strong></td><td>OpenCV DNN / ONNX</td><td>36.9 MB</td><td>Protected Face Recognition</td><td>Local CPU (~15 ms)</td></tr>
+              <tr><td><strong>YOLOv8n</strong></td><td>ONNX Runtime CPU</td><td>12.26 MB</td><td>Classroom Occupancy & Assets</td><td>Local CPU (~360 ms)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
   </main>
 
 <script>
