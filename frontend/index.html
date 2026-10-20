@@ -3,24 +3,63 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SkillWatch AI — Camera Manager</title>
+  <title>SkillWatch AI — Training Centre Compliance Intelligence</title>
+  <link rel="icon" type="image/png" href="/favicon.ico" />
   <style>
     * { box-sizing: border-box; }
     body {
-      margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif;
-      background: #f4f6f8; color: #17202a;
+      margin: 0; font-family: Inter, Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+      background: #f1f5f9; color: #0f172a;
     }
     .topbar {
-      background: #16232e; color: white; padding: 18px 30px;
-      display: flex; align-items: center; justify-content: space-between;
+      background: #0f172a; color: white; padding: 12px 28px;
+      display: flex; align-items: center; justify-content: space-between; gap: 20px;
+      border-bottom: 1px solid #1e293b; position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 4px 14px rgba(0,0,0,.08);
     }
-    .brand { font-size: 22px; font-weight: 700; }
-    .subtitle { font-size: 13px; opacity: .7; margin-top: 3px; }
-    .page { max-width: 1180px; margin: 28px auto; padding: 0 20px; }
+    .brand-group {
+      display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit;
+    }
+    .brand-logo {
+      height: 44px; width: auto; object-fit: contain; background: #ffffff;
+      padding: 3px 8px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.15);
+    }
+    .brand { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; color: #ffffff; line-height: 1.2; }
+    .subtitle { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    .nav-tabs {
+      display: flex; align-items: center; gap: 6px; background: #1e293b;
+      padding: 5px; border-radius: 10px; overflow-x: auto;
+    }
+    .nav-tab {
+      display: flex; align-items: center; gap: 7px; padding: 8px 14px;
+      color: #cbd5e1; text-decoration: none; font-size: 13px; font-weight: 600;
+      border-radius: 7px; transition: all .15s ease; white-space: nowrap; cursor: pointer;
+    }
+    .nav-tab:hover { background: #334155; color: #ffffff; }
+    .nav-tab.active {
+      background: #2563eb; color: #ffffff; box-shadow: 0 2px 8px rgba(37,99,235,.35);
+    }
+    .nav-badge {
+      background: #ef4444; color: white; padding: 1px 6px; border-radius: 10px;
+      font-size: 11px; font-weight: 700; display: none;
+    }
+    .nav-badge.visible { display: inline-block; }
+    .status-pill {
+      display: flex; align-items: center; gap: 8px; padding: 6px 14px;
+      border-radius: 20px; font-size: 12px; font-weight: 600;
+      background: #1e293b; color: #94a3b8; border: 1px solid #334155; white-space: nowrap;
+    }
+    .status-pill.connected {
+      background: rgba(22, 163, 74, .18); color: #4ade80; border-color: rgba(74, 222, 128, .35);
+    }
+    .page { max-width: 1220px; margin: 24px auto 48px; padding: 0 20px; }
+    .page-view { display: none; animation: fadeIn .18s ease-in-out; }
+    .page-view.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     .grid { display: grid; grid-template-columns: 360px 1fr; gap: 22px; }
     .card {
-      background: white; border: 1px solid #e0e5e9; border-radius: 12px;
-      padding: 22px; box-shadow: 0 3px 12px rgba(0,0,0,.04);
+      background: white; border: 1px solid #e2e8f0; border-radius: 12px;
+      padding: 22px; box-shadow: 0 2px 8px rgba(0,0,0,.03); margin-bottom: 22px;
     }
     h2 { margin: 0 0 18px; font-size: 18px; }
     label { display:block; font-size: 13px; font-weight: 600; margin: 14px 0 7px; }
@@ -90,11 +129,45 @@
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <div class="brand">SkillWatch AI</div>
-      <div class="subtitle">Training Centre Camera Manager</div>
+    <div class="brand-group">
+      <img src="/logo.png" alt="SkillWatchAI Logo" class="brand-logo" />
+      <div>
+        <div class="brand">SkillWatch AI</div>
+        <div class="subtitle">Training Centre Compliance Intelligence</div>
+      </div>
     </div>
-    <div id="headerStatus">Disconnected</div>
+
+    <nav class="nav-tabs" id="navTabs">
+      <a href="#/live" class="nav-tab active" data-view="live">
+        <span class="nav-icon">🖥️</span> Live Monitoring
+      </a>
+      <a href="#/attendance" class="nav-tab" data-view="attendance">
+        <span class="nav-icon">📋</span> Attendance
+      </a>
+      <a href="#/students" class="nav-tab" data-view="students">
+        <span class="nav-icon">🎓</span> Students
+      </a>
+      <a href="#/occupancy" class="nav-tab" data-view="occupancy">
+        <span class="nav-icon">👥</span> Occupancy
+      </a>
+      <a href="#/infrastructure" class="nav-tab" data-view="infrastructure">
+        <span class="nav-icon">🪑</span> Infrastructure
+      </a>
+      <a href="#/compliance" class="nav-tab" data-view="compliance">
+        <span class="nav-icon">⚠️</span> Compliance
+        <span class="nav-badge" id="navAlertsBadge">0</span>
+      </a>
+      <a href="#/system" class="nav-tab" data-view="system">
+        <span class="nav-icon">⚙️</span> System
+      </a>
+    </nav>
+
+    <div class="header-right">
+      <div id="headerStatusPill" class="status-pill">
+        <span class="dot" id="headerDot"></span>
+        <span id="headerStatus">Disconnected</span>
+      </div>
+    </div>
   </header>
 
   <main class="page">
