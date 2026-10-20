@@ -298,44 +298,47 @@
   <div id="occupancyMessage" class="message"></div>
 </section>
 
-<section class="card attendance-card" id="attendanceCard">
-  <h2>Automatic Attendance</h2>
-  <div style="font-size:13px;color:#66737d;line-height:1.5;">Start an attendance session for the connected camera. Only confirmed SFace identities are recorded; duplicate check-ins are ignored.</div>
-  <div class="student-grid" style="margin-top:12px;">
-    <div><label>Classroom ID</label><input id="attClassroom" value="ROOM-01" /></div>
-    <div><label>Batch ID</label><input id="attBatch" placeholder="Batch A - 2026" /></div>
-    <div><label>Session Date</label><input id="attDate" type="date" /></div>
-    <div><label>Start Time</label><input id="attStart" type="time" /></div>
-    <div><label>End Time</label><input id="attEnd" type="time" /></div>
-    <div><label>Camera ID</label><input id="attCamera" value="CAM-001" /></div>
-  </div>
-  <div class="buttons" style="margin-top:12px;">
-    <button class="primary" id="createAttendanceBtn">Create Session</button>
-    <button class="primary" id="startAttendanceBtn" disabled>Start Session</button>
-    <button class="danger" id="endAttendanceBtn" disabled>End Session</button>
-  </div>
-  <div class="message" id="attendanceMessage"></div>
-  <div id="attendanceStatus" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;">No attendance session selected.</div>
-  <div class="student-table-wrap" style="margin-top:12px;">
-    <table><thead><tr><th>Student</th><th>Status</th><th>Check-in</th><th>Confidence</th><th>Camera</th><th>Source</th></tr></thead><tbody id="attendanceTableBody"><tr><td colspan="6">Create and start a session.</td></tr></tbody></table>
-  </div>
-  <div class="buttons" style="margin-top:12px;">
-    <button class="secondary" id="refreshAttendanceBtn">Refresh Summary</button>
-    <button class="secondary" id="loadAuditBtn">Load Audit Log</button>
-  </div>
-  <div id="attendanceSummary" style="margin-top:10px;font-size:13px;"></div>
-  <div id="attendanceAudit" style="margin-top:10px;font-size:12px;"></div>
-  <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb;">
-    <strong>Manual Attendance Correction</strong>
-    <div class="student-grid" style="margin-top:8px;">
-      <input id="corrStudent" placeholder="Student ID" />
-      <select id="corrStatus"><option value="PRESENT">PRESENT</option><option value="ABSENT">ABSENT</option></select>
-      <input id="corrReason" placeholder="Reason" />
-      <input id="corrActor" value="admin" placeholder="Actor" />
+    <!-- VIEW 2: AUTOMATIC ATTENDANCE & AUDIT TRAIL -->
+    <div id="view-attendance" class="page-view">
+      <section class="card attendance-card" id="attendanceCard">
+        <h2>Automatic Attendance</h2>
+        <div style="font-size:13px;color:#66737d;line-height:1.5;">Start an attendance session for the connected camera. Only confirmed SFace identities are recorded; duplicate check-ins are ignored.</div>
+        <div class="student-grid" style="margin-top:12px;">
+          <div><label>Classroom ID</label><input id="attClassroom" value="ROOM-01" /></div>
+          <div><label>Batch ID</label><input id="attBatch" placeholder="Batch A - 2026" /></div>
+          <div><label>Session Date</label><input id="attDate" type="date" /></div>
+          <div><label>Start Time</label><input id="attStart" type="time" /></div>
+          <div><label>End Time</label><input id="attEnd" type="time" /></div>
+          <div><label>Camera ID</label><input id="attCamera" value="CAM-001" /></div>
+        </div>
+        <div class="buttons" style="margin-top:12px;">
+          <button class="primary" id="createAttendanceBtn">Create Session</button>
+          <button class="primary" id="startAttendanceBtn" disabled>Start Session</button>
+          <button class="danger" id="endAttendanceBtn" disabled>End Session</button>
+        </div>
+        <div class="message" id="attendanceMessage"></div>
+        <div id="attendanceStatus" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;">No attendance session selected.</div>
+        <div class="student-table-wrap" style="margin-top:12px;">
+          <table><thead><tr><th>Student</th><th>Status</th><th>Check-in</th><th>Confidence</th><th>Camera</th><th>Source</th></tr></thead><tbody id="attendanceTableBody"><tr><td colspan="6">Create and start a session.</td></tr></tbody></table>
+        </div>
+        <div class="buttons" style="margin-top:12px;">
+          <button class="secondary" id="refreshAttendanceBtn">Refresh Summary</button>
+          <button class="secondary" id="loadAuditBtn">Load Audit Log</button>
+        </div>
+        <div id="attendanceSummary" style="margin-top:10px;font-size:13px;"></div>
+        <div id="attendanceAudit" style="margin-top:10px;font-size:12px;"></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb;">
+          <strong>Manual Attendance Correction</strong>
+          <div class="student-grid" style="margin-top:8px;">
+            <input id="corrStudent" placeholder="Student ID" />
+            <select id="corrStatus"><option value="PRESENT">PRESENT</option><option value="ABSENT">ABSENT</option></select>
+            <input id="corrReason" placeholder="Reason" />
+            <input id="corrActor" value="admin" placeholder="Actor" />
+          </div>
+          <button class="warning" id="correctAttendanceBtn" style="margin-top:8px;">Apply Correction</button>
+        </div>
+      </section>
     </div>
-    <button class="warning" id="correctAttendanceBtn" style="margin-top:8px;">Apply Correction</button>
-  </div>
-</section>
 
     <!-- VIEW 3: STUDENT ENROLLMENT & IDENTITY MANAGEMENT -->
     <div id="view-students" class="page-view">
