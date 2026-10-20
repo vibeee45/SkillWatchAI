@@ -7,6 +7,7 @@ from pathlib import Path
 import cv2
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -46,6 +47,30 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.7.0")
+
+ASSETS_DIR = FRONTEND_DIR / "assets"
+ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
+
+
+@app.get("/logo.png")
+def get_logo():
+    logo_file = ASSETS_DIR / "logo.png"
+    if not logo_file.exists():
+        logo_file = FRONTEND_DIR / "logo.png"
+    if logo_file.exists():
+        return FileResponse(logo_file, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Logo not found")
+
+
+@app.get("/favicon.ico")
+def get_favicon():
+    fav_file = ASSETS_DIR / "favicon.png"
+    if not fav_file.exists():
+        fav_file = FRONTEND_DIR / "favicon.png"
+    if fav_file.exists():
+        return FileResponse(fav_file, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Favicon not found")
 camera_manager = CameraManager()
 camera_store = CameraStore(DATA_DIR / "cameras.json")
 camera_lock = threading.Lock()
