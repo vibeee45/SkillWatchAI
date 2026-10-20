@@ -171,106 +171,109 @@
   </header>
 
   <main class="page">
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-title">Camera Health</div>
-        <div class="kpi-value" id="kpiCameraHealth">OFFLINE</div>
-        <div class="kpi-sub" id="kpiCameraFps">FPS: — · Frame age: —</div>
+    <!-- VIEW 1: LIVE MONITORING & EXECUTIVE OVERVIEW -->
+    <div id="view-live" class="page-view active">
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-title">Camera Health</div>
+          <div class="kpi-value" id="kpiCameraHealth">OFFLINE</div>
+          <div class="kpi-sub" id="kpiCameraFps">FPS: — · Frame age: —</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Room Occupancy</div>
+          <div class="kpi-value" id="kpiOccupancy">0</div>
+          <div class="kpi-sub" id="kpiOccupancySub">0 recognized · 0 unknown</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Class Attendance</div>
+          <div class="kpi-value" id="kpiAttendance">0%</div>
+          <div class="kpi-sub" id="kpiAttendanceSub">No active session</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Observed Assets</div>
+          <div class="kpi-value" id="kpiAssets">0</div>
+          <div class="kpi-sub" id="kpiAssetsSub">chairs, tables, laptops, monitors</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Compliance Alerts</div>
+          <div class="kpi-value" id="kpiAlerts">0</div>
+          <div class="kpi-sub" id="kpiAlertsSub">0 critical requiring review</div>
+        </div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-title">Room Occupancy</div>
-        <div class="kpi-value" id="kpiOccupancy">0</div>
-        <div class="kpi-sub" id="kpiOccupancySub">0 recognized · 0 unknown</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-title">Class Attendance</div>
-        <div class="kpi-value" id="kpiAttendance">0%</div>
-        <div class="kpi-sub" id="kpiAttendanceSub">No active session</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-title">Observed Assets</div>
-        <div class="kpi-value" id="kpiAssets">0</div>
-        <div class="kpi-sub" id="kpiAssetsSub">chairs, tables, laptops, monitors</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-title">Compliance Alerts</div>
-        <div class="kpi-value" id="kpiAlerts">0</div>
-        <div class="kpi-sub" id="kpiAlertsSub">0 critical requiring review</div>
-      </div>
-    </div>
 
-    <div class="grid">
-      <section class="card">
-        <h2>Camera Configuration</h2>
+      <div class="grid">
+        <section class="card">
+          <h2>Camera Configuration</h2>
 
-        <label for="sourceType">Camera Source</label>
-        <select id="sourceType">
-          <option value="device">Laptop / USB Camera</option>
-          <option value="rtsp">RTSP / IP / CCTV Camera</option>
-          <option value="file">MP4 / Video File</option>
-        </select>
+          <label for="sourceType">Camera Source</label>
+          <select id="sourceType">
+            <option value="device">Laptop / USB Camera</option>
+            <option value="rtsp">RTSP / IP / CCTV Camera</option>
+            <option value="file">MP4 / Video File</option>
+          </select>
 
-        <div id="deviceFields">
-          <label for="cameraIndex">Camera Index</label>
-          <input id="cameraIndex" type="number" min="0" value="0" />
-        </div>
-
-        <div id="rtspFields" class="hidden">
-          <label for="rtspUrl">RTSP URL</label>
-          <input id="rtspUrl" placeholder="rtsp://username:password@192.168.1.100:554/stream" />
-        </div>
-
-        <div id="fileFields" class="hidden">
-          <label for="videoFile">Video File</label>
-          <input id="videoFile" type="file" accept=".mp4,.avi,.mov,.mkv,.webm,video/*" />
-        </div>
-
-        <label for="cameraId">Camera ID</label>
-        <input id="cameraId" value="CAM-001" />
-
-        <label for="room">Room / Training Centre Area</label>
-        <input id="room" value="Training Room 01" />
-
-        <div class="buttons">
-          <button class="primary" id="connectBtn">Connect Camera</button>
-          <button class="danger" id="disconnectBtn" disabled>Disconnect</button>
-        </div>
-
-        <div class="status">
-          <span class="dot" id="statusDot"></span>
-          <span id="statusText">Disconnected</span>
-        </div>
-
-        <div class="buttons" style="margin-top:12px;">
-          <button class="danger" id="saveBtn">Save Configuration</button>
-          <button class="danger" id="loadBtn">Load Saved Cameras</button>
-        </div>
-        <select id="savedCameras" class="hidden"><option value="">Select saved camera...</option></select>
-        <div class="message" id="message"></div>
-      </section>
-
-      <section class="card">
-        <h2>Live Camera Preview</h2>
-        <div class="preview">
-          <img id="stream" src="/api/camera/stream" alt="Camera stream" />
-          <div class="placeholder" id="placeholder">
-            Connect a camera source to start the preview.
+          <div id="deviceFields">
+            <label for="cameraIndex">Camera Index</label>
+            <input id="cameraIndex" type="number" min="0" value="0" />
           </div>
-        </div>
 
-        <div class="meta">
-          <span id="resolution">Resolution: —</span>
-          <span id="fps">FPS: —</span>
-          <span id="sourceLabel">Source: —</span>
-          <span id="roomLabel">Room: —</span><span id="healthLabel">Health: —</span><span id="lastFrame">Last frame: —</span><span id="frameAgeLabel">Frame age: —</span><span id="qualityLabel">Image quality: —</span><span id="reconnectLabel">Reconnects: 0</span>
-        </div>
-        <div class="meta" style="margin-top:10px;padding:10px;background:#f5f7fa;border-radius:8px;">
-          <strong>Offline event queue</strong>
-          <span id="offlineQueueLabel">Checking local queue…</span>
-          <span id="offlineSyncLabel">Remote sync: not checked</span>
-          <button id="syncNowBtn" type="button" style="padding:6px 10px;">Sync queued events</button>
-        </div>
-      </section>
+          <div id="rtspFields" class="hidden">
+            <label for="rtspUrl">RTSP URL</label>
+            <input id="rtspUrl" placeholder="rtsp://username:password@192.168.1.100:554/stream" />
+          </div>
+
+          <div id="fileFields" class="hidden">
+            <label for="videoFile">Video File</label>
+            <input id="videoFile" type="file" accept=".mp4,.avi,.mov,.mkv,.webm,video/*" />
+          </div>
+
+          <label for="cameraId">Camera ID</label>
+          <input id="cameraId" value="CAM-001" />
+
+          <label for="room">Room / Training Centre Area</label>
+          <input id="room" value="Training Room 01" />
+
+          <div class="buttons">
+            <button class="primary" id="connectBtn">Connect Camera</button>
+            <button class="danger" id="disconnectBtn" disabled>Disconnect</button>
+          </div>
+
+          <div class="status">
+            <span class="dot" id="statusDot"></span>
+            <span id="statusText">Disconnected</span>
+          </div>
+
+          <div class="buttons" style="margin-top:12px;">
+            <button class="danger" id="saveBtn">Save Configuration</button>
+            <button class="danger" id="loadBtn">Load Saved Cameras</button>
+          </div>
+          <select id="savedCameras" class="hidden"><option value="">Select saved camera...</option></select>
+          <div class="message" id="message"></div>
+        </section>
+
+        <section class="card">
+          <h2>Live Camera Preview</h2>
+          <div class="preview">
+            <img id="stream" src="/api/camera/stream" alt="Camera stream" />
+            <div class="placeholder" id="placeholder">
+              Connect a camera source to start the preview.
+            </div>
+          </div>
+
+          <div class="meta">
+            <span id="resolution">Resolution: —</span>
+            <span id="fps">FPS: —</span>
+            <span id="sourceLabel">Source: —</span>
+            <span id="roomLabel">Room: —</span><span id="healthLabel">Health: —</span><span id="lastFrame">Last frame: —</span><span id="frameAgeLabel">Frame age: —</span><span id="qualityLabel">Image quality: —</span><span id="reconnectLabel">Reconnects: 0</span>
+          </div>
+          <div class="meta" style="margin-top:10px;padding:10px;background:#f5f7fa;border-radius:8px;">
+            <strong>Offline event queue</strong>
+            <span id="offlineQueueLabel">Checking local queue…</span>
+            <span id="offlineSyncLabel">Remote sync: not checked</span>
+            <button id="syncNowBtn" type="button" style="padding:6px 10px;">Sync queued events</button>
+          </div>
+        </section>
+      </div>
     </div>
 
     
