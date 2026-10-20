@@ -277,26 +277,31 @@
     </div>
 
     
-<section class="card" id="occupancyCard" style="margin-top:22px;">
-  <h2>Person Detection & Occupancy</h2>
-  <div style="font-size:13px;color:#66737d;line-height:1.5;">CPU-friendly person detection, lightweight tracking, classroom zones and smoothed occupancy. Identity is supplied separately by SFace recognition.</div>
-  <div class="student-grid" style="margin-top:14px;">
-    <div><label>Total Occupancy</label><div id="occupancyTotal" style="font-size:28px;font-weight:700;">0</div></div>
-    <div><label>Recognized Students</label><div id="occupancyRecognized" style="font-size:28px;font-weight:700;">0</div></div>
-    <div><label>Unknown Persons</label><div id="occupancyUnknown" style="font-size:28px;font-weight:700;">0</div></div>
-  </div>
-  <div id="occupancyStatus" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;">Waiting for a sampled camera frame.</div>
-  <div style="margin-top:12px;">
-    <strong style="font-size:13px;">Classroom Zones</strong>
-    <div style="font-size:12px;color:#66737d;margin-top:5px;">Coordinates are normalized from 0 to 1. The default zone covers the whole frame.</div>
-    <textarea id="occupancyZones" rows="3" style="width:100%;margin-top:8px;padding:10px;border:1px solid #cbd3da;border-radius:7px;font-family:monospace;font-size:12px;">[{"zone_id":"classroom","x1":0,"y1":0,"x2":1,"y2":1}]</textarea>
-  </div>
-  <div class="buttons" style="margin-top:10px;">
-    <button class="secondary" id="saveOccupancyZonesBtn">Save Zones</button>
-    <button class="secondary" id="resetOccupancyBtn">Reset Occupancy</button>
-  </div>
-  <div id="occupancyMessage" class="message"></div>
-</section>
+    <!-- VIEW 4: ROOM OCCUPANCY & SPATIAL ANALYTICS -->
+    <div id="view-occupancy" class="page-view">
+      <section class="card" id="occupancyCard">
+        <h2>Person Detection & Room Occupancy</h2>
+        <div style="font-size:13px;color:#66737d;line-height:1.5;">
+          CPU-friendly YOLOv8n person detection, lightweight IoU tracking, classroom zones, and 5-frame median temporal smoothing. Anonymous room presence is strictly separated from authenticated student identity.
+        </div>
+        <div class="student-grid" style="margin-top:14px;">
+          <div><label>Total Occupancy (Smoothed)</label><div id="occupancyTotal" style="font-size:28px;font-weight:700;">0</div></div>
+          <div><label>Recognized Students</label><div id="occupancyRecognized" style="font-size:28px;font-weight:700;color:#18a558;">0</div></div>
+          <div><label>Unknown Persons</label><div id="occupancyUnknown" style="font-size:28px;font-weight:700;color:#b54708;">0</div></div>
+        </div>
+        <div id="occupancyStatus" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;">Waiting for a sampled camera frame.</div>
+        <div style="margin-top:14px;">
+          <strong style="font-size:13px;">Classroom Spatial Zones (Normalized 0.0 – 1.0)</strong>
+          <div style="font-size:12px;color:#66737d;margin-top:4px;">Define polygon/rectangular regions of interest (e.g., student seating area vs instructor podium).</div>
+          <textarea id="occupancyZones" rows="3" style="width:100%;margin-top:8px;padding:10px;border:1px solid #cbd3da;border-radius:7px;font-family:monospace;font-size:12px;">[{"zone_id":"classroom","x1":0,"y1":0,"x2":1,"y2":1}]</textarea>
+        </div>
+        <div class="buttons" style="margin-top:10px;">
+          <button class="primary" id="saveOccupancyZonesBtn">Save Zones</button>
+          <button class="secondary" id="resetOccupancyBtn">Reset Occupancy</button>
+        </div>
+        <div id="occupancyMessage" class="message"></div>
+      </section>
+    </div>
 
     <!-- VIEW 2: AUTOMATIC ATTENDANCE & AUDIT TRAIL -->
     <div id="view-attendance" class="page-view">
