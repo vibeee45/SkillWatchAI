@@ -91,13 +91,29 @@ Government-funded skilling schemes depend on geographically distributed training
 | **Phase 10** | Compliance & Alert Engine | ✅ Completed | Multi-rule engine with severity scoring and persistence |
 | **Phase 11** | Offline Mode & Reliability | ✅ Completed | SQLite WAL queue, retry worker, camera health watchdog |
 | **Phase 12** | Backend & Database Models | ✅ Completed | Unified `/api/dashboard/summary`, SQLAlchemy relational schema |
-| **Phase 13** | Frontend Dashboard | ✅ Completed | Interactive cards for preview, KPI, attendance, infra, alerts |
-| **Phase 14** | Testing & Empirical Benchmarking | ✅ Completed | 55 unit tests passing, `MEASURED_ACCURACY_REPORT.md` |
+| **Phase 13** | Frontend Multipage Dashboard | ✅ Completed | Multipage SPA hash-router (`#/live`, `#/attendance`, `#/students`, `#/occupancy`, `#/infrastructure`, `#/compliance`, `#/system`) with official logo |
+| **Phase 14** | Testing & Empirical Benchmarking | ✅ Completed | 57 automated tests passing, `MEASURED_ACCURACY_REPORT.md` |
 | **Phase 15** | Demonstration Protocol | ✅ Completed | 7-step evaluation script in `SIH_DEMO_GUIDE.md` |
 
 ---
 
-## 4. Key Performance Benchmarks (Measured)
+## 4. Multipage Dashboard Architecture
+
+SkillWatch AI features a single-page application (SPA) client-side hash router designed for low resource consumption and zero video interruption during officer navigation:
+
+| View Hash | Page View | Features & Modules |
+| :--- | :--- | :--- |
+| **`#/live`** | **Live Monitoring** | Top KPI summary strip, Camera Configuration (USB/RTSP/MP4), and live annotated MJPEG stream. |
+| **`#/attendance`** | **Attendance Management** | Session creator/controller (Start/Pause/Stop), attendance roster with verified timestamps, manual override modal with reason audit trail. |
+| **`#/students`** | **Student Roster & Enrollment** | Privacy-consented student enrollment interface, 3-sample feature capture progress, registered student gallery with masked embedding hashes. |
+| **`#/occupancy`** | **Room Occupancy Analytics** | Real-time classroom presence counter, recognized students vs unknown occupants split, 5-frame temporal IoU trajectory chart. |
+| **`#/infrastructure`** | **Infrastructure Compliance** | Real-time computer vision asset counters (chairs, tables, laptops, monitors), single-frame deep inspection, and spatial boundary zone controls. |
+| **`#/compliance`** | **Compliance Alerts & Review** | Discrepancy alerts panel, severity tags (`HIGH`, `MEDIUM`, `LOW`), one-click officer resolution modal with audit note persistence. |
+| **`#/system`** | **System Health & Watchdog** | Camera hardware health diagnostic table, frame-quality sharpness metrics, SQLite WAL offline queue monitor with manual sync flush. |
+
+---
+
+## 5. Key Performance Benchmarks (Measured)
 
 *From empirical tests run on standard CPU without GPU acceleration:*
 
@@ -112,7 +128,7 @@ For full confusion matrices, latency percentiles, and protocol details, see [MEA
 
 ---
 
-## 5. Quickstart & Installation
+## 6. Quickstart & Installation
 
 ### Requirements
 - Python 3.10+
@@ -141,9 +157,9 @@ Open **`http://localhost:8000`** in any web browser.
 
 ---
 
-## 6. Running Tests & Benchmarks
+## 7. Running Tests & Benchmarks
 
-Run the complete 55-test test suite:
+Run the complete 57-test automated test suite:
 ```bash
 python -m pytest tests/
 ```
@@ -155,7 +171,7 @@ python tools/benchmark_evaluation.py
 
 ---
 
-## 7. API Reference
+## 8. API Reference
 
 | Endpoint | Method | Description |
 | :--- | :---: | :--- |
@@ -174,7 +190,7 @@ python tools/benchmark_evaluation.py
 
 ---
 
-## 8. Live Demonstration Guide
+## 9. Live Demonstration Guide
 
 To replicate the official SIH live presentation workflow:
 👉 Follow the step-by-step instructions in [SIH_DEMO_GUIDE.md](file:///c:/Users/91958/Desktop/SkillWatchAI/SIH_DEMO_GUIDE.md).
