@@ -434,45 +434,48 @@
       </section>
     </div>
 
-    <section class="card" id="infrastructureCard" style="margin-top:22px;">
-      <h2>Infrastructure & Equipment Monitoring</h2>
-      <div style="font-size:13px;color:#66737d;line-height:1.5;">
-        YOLOv8n ONNX detects physical equipment (chairs, tables/workbenches, laptops, TV/monitors). Observations are tracked temporally to detect changes without hardcoded arbitrary inventory.
-      </div>
+    <!-- VIEW 5: INFRASTRUCTURE & EQUIPMENT COMPLIANCE -->
+    <div id="view-infrastructure" class="page-view">
+      <section class="card" id="infrastructureCard">
+        <h2>Infrastructure & Equipment Monitoring</h2>
+        <div style="font-size:13px;color:#66737d;line-height:1.5;">
+          YOLOv8n ONNX detects physical equipment (chairs, tables/workbenches, laptops, TV/monitors). Observations are tracked temporally to detect changes without hardcoded arbitrary inventory.
+        </div>
 
-      <div class="student-grid" style="margin-top:14px;">
-        <div><label>Chairs</label><div id="infraChairs" style="font-size:26px;font-weight:700;">0</div></div>
-        <div><label>Tables / Workbenches</label><div id="infraTables" style="font-size:26px;font-weight:700;">0</div></div>
-        <div><label>Laptops</label><div id="infraLaptops" style="font-size:26px;font-weight:700;">0</div></div>
-      </div>
-      <div class="student-grid" style="margin-top:10px;">
-        <div><label>TVs / Monitors</label><div id="infraMonitors" style="font-size:26px;font-weight:700;">0</div></div>
-        <div><label>Detection State</label><div id="infraState" style="font-size:18px;font-weight:600;color:#18a558;">IDLE</div></div>
-        <div><label>Inference Latency</label><div id="infraLatency" style="font-size:18px;font-weight:600;">— ms</div></div>
-      </div>
+        <div class="student-grid" style="margin-top:14px;">
+          <div><label>Chairs</label><div id="infraChairs" style="font-size:26px;font-weight:700;">0</div></div>
+          <div><label>Tables / Workbenches</label><div id="infraTables" style="font-size:26px;font-weight:700;">0</div></div>
+          <div><label>Laptops</label><div id="infraLaptops" style="font-size:26px;font-weight:700;">0</div></div>
+        </div>
+        <div class="student-grid" style="margin-top:10px;">
+          <div><label>TVs / Monitors</label><div id="infraMonitors" style="font-size:26px;font-weight:700;">0</div></div>
+          <div><label>Detection State</label><div id="infraState" style="font-size:18px;font-weight:600;color:#18a558;">IDLE</div></div>
+          <div><label>Inference Latency</label><div id="infraLatency" style="font-size:18px;font-weight:600;">— ms</div></div>
+        </div>
 
-      <div id="infraStatusBox" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;">Waiting for camera feed...</div>
-      <div class="student-message" id="infraMessage"></div>
+        <div id="infraStatusBox" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;">Waiting for camera feed...</div>
+        <div class="student-message" id="infraMessage"></div>
 
-      <div class="student-list" style="margin-top:14px;">
-        <strong>Detected Equipment in Current Frame</strong>
-        <table class="student-table" style="margin-top:8px;">
-          <thead><tr><th>Asset Class</th><th>Confidence</th><th>Bounding Box (x, y, w, h)</th><th>Zone</th></tr></thead>
-          <tbody id="infraTableBody"><tr><td colspan="4">No infrastructure detected.</td></tr></tbody>
-        </table>
-      </div>
+        <div class="student-list" style="margin-top:14px;">
+          <strong>Detected Equipment in Current Frame</strong>
+          <table class="student-table" style="margin-top:8px;">
+            <thead><tr><th>Asset Class</th><th>Confidence</th><th>Bounding Box (x, y, w, h)</th><th>Zone</th></tr></thead>
+            <tbody id="infraTableBody"><tr><td colspan="4">No infrastructure detected.</td></tr></tbody>
+          </table>
+        </div>
 
-      <div style="margin-top:16px;">
-        <strong style="font-size:13px;">Infrastructure Zones Geometry (Normalized 0.0 - 1.0)</strong>
-        <textarea id="infraZones" rows="2" style="width:100%;margin-top:6px;padding:8px;border:1px solid #cbd3da;border-radius:7px;font-family:monospace;font-size:12px;">[]</textarea>
-      </div>
+        <div style="margin-top:16px;">
+          <strong style="font-size:13px;">Infrastructure Zones Geometry (Normalized 0.0 - 1.0)</strong>
+          <textarea id="infraZones" rows="2" style="width:100%;margin-top:6px;padding:8px;border:1px solid #cbd3da;border-radius:7px;font-family:monospace;font-size:12px;">[]</textarea>
+        </div>
 
-      <div class="buttons" style="margin-top:10px;">
-        <button class="primary" id="testInfraBtn">Test Current Frame</button>
-        <button class="secondary" id="saveInfraZonesBtn">Save Zones</button>
-        <button class="danger" id="resetInfraBtn">Reset Observations</button>
-      </div>
-    </section>
+        <div class="buttons" style="margin-top:10px;">
+          <button class="primary" id="testInfraBtn">Test Current Frame</button>
+          <button class="secondary" id="saveInfraZonesBtn">Save Zones</button>
+          <button class="danger" id="resetInfraBtn">Reset Observations</button>
+        </div>
+      </section>
+    </div>
 
     <section class="card" id="complianceCard" style="margin-top:22px;">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
