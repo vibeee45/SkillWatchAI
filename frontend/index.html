@@ -1380,5 +1380,175 @@ loadSavedCameras();
   setInterval(loadAlerts, 3000);
 })();
 </script>
+
+<script>
+// Multipage Client-Side Hash Router
+(function(){
+  const validViews = ['live', 'attendance', 'students', 'occupancy', 'infrastructure', 'compliance', 'system'];
+
+  function switchView(viewName) {
+    if (!validViews.includes(viewName)) {
+      viewName = 'live';
+    }
+
+    // Toggle views
+    validViews.forEach(v => {
+      const el = document.getElementById('view-' + v);
+      if (el) {
+        el.classList.toggle('active', v === viewName);
+      }
+    });
+
+    // Toggle nav tabs
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+      const target = tab.getAttribute('data-view');
+      tab.classList.toggle('active', target === viewName);
+    });
+
+    // Update page title
+    const titles = {
+      live: 'Live Monitoring — SkillWatch AI',
+      attendance: 'Attendance Management — SkillWatch AI',
+      students: 'Student Enrollment — SkillWatch AI',
+      occupancy: 'Room Occupancy Analytics — SkillWatch AI',
+      infrastructure: 'Infrastructure Compliance — SkillWatch AI',
+      compliance: 'Compliance Alerts & Review — SkillWatch AI',
+      system: 'System Health & Offline Queue — SkillWatch AI',
+    };
+    if (titles[viewName]) {
+      document.title = titles[viewName];
+    }
+
+    try {
+      sessionStorage.setItem('skillwatch_active_view', viewName);
+    } catch (_) {}
+  }
+
+  window.addEventListener('hashchange', () => {
+    const raw = window.location.hash.replace(/^#\/?/, '').trim();
+    switchView(raw);
+  });
+
+  // Handle nav tab clicks
+  document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.addEventListener('click', (e) => {
+      const view = tab.getAttribute('data-view');
+      if (view) {
+        window.location.hash = '#/' + view;
+      }
+    });
+  });
+
+  // Determine initial view from URL hash or sessionStorage
+  let initial = window.location.hash.replace(/^#\/?/, '').trim();
+  if (!validViews.includes(initial)) {
+    try {
+      initial = sessionStorage.getItem('skillwatch_active_view') || 'live';
+    } catch (_) {
+      initial = 'live';
+    }
+  }
+  if (!validViews.includes(initial)) initial = 'live';
+  window.location.hash = '#/' + initial;
+  switchView(initial);
+})();
+</script>
+
+<script>
+// System Health & Watchdog View Controller
+(function(){
+  const $ = id => document.getElementById(id);
+
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function updateSystemView() {
+    try {
+      const [camRes, offRes, pipeRes, sumRes] = await Promise.all([
+        fetch('/api/camera/status').then(r => r.ok ? r.json() : {}),
+        fetch('/api/offline/status').then(r => r.ok ? r.json() : {}),
+        fetch('/api/pipeline/status').then(r => r.ok ? r.json() : {}),
+        fetch('/api/dashboard/summary').then(r => r.ok ? r.json() : {}),
+      ]);
+
+      // Camera Health Card & Table
+      const isConnected = !!camRes.connected;
+      const health = (camRes.health || 'unknown').toUpperCase();
+      const q = camRes.frame_quality || {};
+
+      $('sysCamState').textContent = isConnected ? health : 'OFFLINE';
+      $('sysCamState').style.color = !isConnected ? '#d92d20' : (health === 'NORMAL' ? '#18a558' : '#f79009');
+      $('sysCamSub').textContent = isConnected ? `Source: ${camRes.source_type} · Room: ${camRes.room || '—'}` : 'Camera feed not connected';
+
+      $('sysTableConnected').textContent = isConnected ? 'Connected (Online)' : 'Disconnected';
+      $('sysTableConnected').style.color = isConnected ? '#18a558' : '#d92d20';
+      $('sysTableHealth').textContent = health;
+      $('sysTableHealth').style.color = health === 'NORMAL' ? '#18a558' : (isConnected ? '#f79009' : '#d92d20');
+
+      $('sysTableLastFrame').textContent = camRes.last_frame_at ? new Date(camRes.last_frame_at).toLocaleTimeString() : '—';
+      $('sysTableFrameAge').textContent = camRes.frame_age_seconds != null ? `${Number(camRes.frame_age_seconds).toFixed(1)} seconds` : '—';
+      $('sysTableQuality').textContent = q.state ? `${esc(q.state)}${q.sharpness != null ? ` (sharpness: ${q.sharpness})` : ''}` : '—';
+      $('sysTableReconnects').textContent = camRes.reconnect_attempts || 0;
+
+      // Offline Queue Card & Table
+      const queue = offRes.queue || {};
+      const sync = offRes.sync || {};
+      const pending = queue.pending || 0;
+
+      $('sysQueueState').textContent = `${pending} PENDING`;
+      $('sysQueueState').style.color = pending > 0 ? '#b54708' : '#18a558';
+      $('sysQueueSub').textContent = `${queue.synced || 0} synced · ${queue.failed || 0} failed`;
+
+      $('sysQueuePending').textContent = pending;
+      $('sysQueueSyncing').textContent = queue.syncing || 0;
+      $('sysQueueSynced').textContent = queue.synced || 0;
+      $('sysQueueFailed').textContent = queue.failed || 0;
+      $('sysSyncUrl').textContent = sync.configured ? 'Configured (Active HTTPS sync receiver)' : 'Not configured (All events stored safely in local SQLite WAL)';
+
+      // Pipeline Throughput Card
+      const pStats = pipeRes.stats || {};
+      const fps = Number(pStats.processing_fps || 0).toFixed(1);
+      $('sysPipelineFps').textContent = `${fps} FPS`;
+      $('sysPipelineSub').textContent = `Processed: ${pStats.processed_frames || 0} frames · Avg latency: ${pStats.avg_latency_ms || 0} ms`;
+
+      // Header status pill & dot
+      const headerPill = $('headerStatusPill');
+      const headerText = $('headerStatus');
+      if (headerPill && headerText) {
+        headerPill.classList.toggle('connected', isConnected);
+        headerText.textContent = isConnected ? `● Connected (${camRes.room || 'Room 01'})` : 'Disconnected';
+      }
+
+      // Nav Alerts Badge
+      const comp = sumRes.compliance || {};
+      const alertCount = comp.active_alerts_count || 0;
+      const navBadge = $('navAlertsBadge');
+      if (navBadge) {
+        navBadge.textContent = alertCount;
+        navBadge.classList.toggle('visible', alertCount > 0);
+      }
+    } catch (_) {}
+  }
+
+  $('sysSyncNowBtn')?.addEventListener('click', async () => {
+    const btn = $('sysSyncNowBtn');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/offline/sync', { method: 'POST' });
+      const data = await res.json();
+      alert(data.configured ? `Sync completed: ${data.synced || 0} sent.` : 'Remote receiver not configured. Telemetry is preserved locally.');
+      updateSystemView();
+    } catch (e) {
+      alert('Sync request error: ' + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  updateSystemView();
+  setInterval(updateSystemView, 3000);
+})();
+</script>
 </body>
 </html>
