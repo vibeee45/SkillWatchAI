@@ -1,0 +1,36 @@
+# SkillWatch AI - Render Infrastructure as Code Blueprint
+# https://render.com/docs/blueprint-spec
+
+databases:
+  - name: skillwatch-db
+    databaseName: skillwatch
+    user: skillwatch_user
+    plan: free
+
+services:
+  - type: web
+    name: skillwatch-backend
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: "./render_build.sh"
+    startCommand: "uvicorn backend.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: "/api/camera/status"
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: skillwatch-db
+          property: connectionString
+      - key: SKILLWATCH_RECOGNITION_THRESHOLD
+        value: "0.38"
+      - key: SKILLWATCH_RECOGNITION_CONFIRMATION_FRAMES
+        value: "2"
+      - key: SKILLWATCH_INFRA_CONFIDENCE
+        value: "0.15"
+      - key: SKILLWATCH_PIPELINE_SAMPLE_EVERY_N
+        value: "2"
