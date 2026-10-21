@@ -37,13 +37,12 @@ def run_benchmark(num_frames: int = 50) -> dict:
     sface_path = models_dir / "face_recognition_sface_2021dec.onnx"
     yolo_path = models_dir / "yolov8n.onnx"
 
-    video_path = BASE_DIR / "camera" / "test_videos" / "classroom.mp4"
-    if not video_path.exists():
-        video_path = BASE_DIR / "camera" / "uploaded_videos" / "classroom.mp4"
+    video_files = list((BASE_DIR / "camera" / "uploaded_videos").glob("*.mp4")) + list((BASE_DIR / "camera" / "test_videos").glob("*.mp4"))
+    video_path = video_files[0] if video_files else None
 
-    cap = cv2.VideoCapture(str(video_path))
+    cap = cv2.VideoCapture(str(video_path)) if video_path else None
     frames = []
-    while len(frames) < num_frames and cap.isOpened():
+    while cap and len(frames) < num_frames and cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break

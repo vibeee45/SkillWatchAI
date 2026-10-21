@@ -6,9 +6,18 @@ __pycache__/
 
 data/*
 evidence/*
+camera/uploaded_videos/*
+camera/test_videos/*
 
 !data/.gitkeep
 !evidence/.gitkeep
+!camera/uploaded_videos/.gitkeep
+!camera/test_videos/.gitkeep
+
+*.mp4
+*.avi
+*.mov
+*.mkv
 
 .vscode/
 .idea/
