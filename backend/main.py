@@ -622,16 +622,25 @@ def delete_camera(camera_id: str):
 @app.post("/api/camera/connect")
 def connect_camera(request: CameraConnectRequest):
     with camera_lock:
-        if request.source_type == "device":
+        if request.source_type == "demo":
+            demo_path = str(BASE_DIR / "camera" / "test_videos" / "classroom.mp4")
+            connected = camera_manager.connect_video_file(demo_path, request.camera_id, request.room)
+        elif request.source_type == "browser":
+            connected = camera_manager.connect_browser_stream(request.camera_id, request.room)
+        elif request.source_type == "device":
             connected = camera_manager.connect_device_camera(request.camera_index, request.camera_id, request.room)
+            if not connected:
+                raise HTTPException(
+                    status_code=503,
+                    detail="No physical USB camera detected on this server. When running in the cloud (Render/AWS), select 'Demo Classroom Video' or 'Browser Web Camera', or run locally for USB webcam hardware.",
+                )
         elif request.source_type == "rtsp":
             if not request.rtsp_url:
                 raise HTTPException(status_code=400, detail="RTSP URL is required.")
             connected = camera_manager.connect_rtsp(request.rtsp_url, request.camera_id, request.room)
         elif request.source_type == "file":
-            if not request.file_path:
-                raise HTTPException(status_code=400, detail="Video file path is required.")
-            connected = camera_manager.connect_video_file(request.file_path, request.camera_id, request.room)
+            path = request.file_path or str(BASE_DIR / "camera" / "test_videos" / "classroom.mp4")
+            connected = camera_manager.connect_video_file(path, request.camera_id, request.room)
         else:
             raise HTTPException(status_code=400, detail="Unsupported camera source.")
     if not connected:
@@ -640,6 +649,19 @@ def connect_camera(request: CameraConnectRequest):
     camera_store.upsert(_config_from_status(status))
     _record_camera_health_transition(status)
     return {"message": "Camera connected successfully.", "status": status}
+
+
+@app.post("/api/camera/browser-frame")
+async def receive_browser_frame(frame: UploadFile = File(...)):
+    if not camera_manager.is_connected or camera_manager.source_type != "browser":
+        raise HTTPException(status_code=409, detail="Browser camera stream is not active.")
+    data = await frame.read()
+    nparr = np.frombuffer(data, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Invalid image frame.")
+    camera_manager.feed_browser_frame(img)
+    return {"status": "ok", "frames": camera_manager.frame_count}
 
 
 @app.post("/api/camera/connect-upload")

@@ -130,6 +130,35 @@ class CameraManager:
             return False
         return self._set_capture(cv2.VideoCapture(file_path), file_path, "file", camera_id, room)
 
+    def connect_browser_stream(self, camera_id: str = "CAM-001", room: str = "Training Room 01") -> bool:
+        with self._lock:
+            self.disconnect(clear_config=False)
+            self.source = "browser"
+            self.source_type = "browser"
+            self.camera_id = camera_id
+            self.room = room
+            self.last_camera_id = camera_id
+            self.last_room = room
+            self.last_source_type = "browser"
+            self.last_source = "browser"
+            self.is_connected = True
+            self.health = "healthy"
+            self.last_error = None
+            self.consecutive_failures = 0
+            self.reconnect_attempts = 0
+            self.last_frame_at = None
+            self.frame_count = 0
+            self.actual_fps = 0.0
+            return True
+
+    def feed_browser_frame(self, frame) -> bool:
+        with self._lock:
+            if not self.is_connected or self.source_type != "browser":
+                return False
+            self._latest_frame = frame.copy()
+            self._mark_frame_success(frame)
+            return True
+
     def _mark_frame_success(self, frame=None):
         now = time.monotonic()
         self.last_success_monotonic = now
@@ -200,9 +229,19 @@ class CameraManager:
 
     def read_frame(self):
         with self._lock:
-            if not self.capture or not self.is_connected:
+            if not self.is_connected:
+                return False, None
+            if self.source_type == "browser":
+                if self._latest_frame is not None:
+                    return True, self._latest_frame.copy()
+                return False, None
+            if not self.capture:
                 return False, None
             success, frame = self.capture.read()
+            if not success and self.source_type == "file":
+                # Automatically loop demo and uploaded video files continuously
+                self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                success, frame = self.capture.read()
             if not success:
                 self._mark_frame_failure("Frame read failed.")
                 return False, None

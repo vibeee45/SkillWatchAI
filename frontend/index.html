@@ -212,9 +212,11 @@
 
           <label for="sourceType">Camera Source</label>
           <select id="sourceType">
-            <option value="device">Laptop / USB Camera</option>
+            <option value="demo">Demo Classroom Video (Recommended for Cloud / Render)</option>
+            <option value="browser">Browser Web Camera (Live Stream from This Device)</option>
+            <option value="file">Upload Custom MP4 / Video File</option>
+            <option value="device">Laptop / USB Camera (Local Machine Only)</option>
             <option value="rtsp">RTSP / IP / CCTV Camera</option>
-            <option value="file">MP4 / Video File</option>
           </select>
 
           <div id="deviceFields">
@@ -673,6 +675,11 @@ function setStatus(status) {
   document.getElementById("reconnectLabel").textContent = `Reconnects: ${status.reconnect_attempts || 0}`;
 }
 
+let browserMediaStream = null;
+let browserVideoEl = null;
+let browserCanvas = null;
+let browserInterval = null;
+
 async function connectCamera() {
   clearMessage();
 
@@ -683,7 +690,63 @@ async function connectCamera() {
   try {
     let response;
 
-    if (type === "file") {
+    if (type === "demo") {
+      const payload = {
+        source_type: "demo",
+        camera_id: cameraId,
+        room: room
+      };
+      response = await fetch("/api/camera/connect", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+    } else if (type === "browser") {
+      message.textContent = "Requesting device camera access...";
+      browserMediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 360 }
+      });
+      if (!browserVideoEl) {
+        browserVideoEl = document.createElement("video");
+        browserVideoEl.setAttribute("playsinline", "true");
+        browserVideoEl.muted = true;
+      }
+      browserVideoEl.srcObject = browserMediaStream;
+      await browserVideoEl.play();
+
+      response = await fetch("/api/camera/connect", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ source_type: "browser", camera_id: cameraId, room: room })
+      });
+      const d = await response.json();
+      if (!response.ok) throw new Error(d.detail || "Browser camera connection failed.");
+
+      if (!browserCanvas) {
+        browserCanvas = document.createElement("canvas");
+        browserCanvas.width = 640;
+        browserCanvas.height = 360;
+      }
+      const ctx = browserCanvas.getContext("2d");
+      if (browserInterval) clearInterval(browserInterval);
+      browserInterval = setInterval(() => {
+        if (!browserVideoEl || browserVideoEl.readyState < 2) return;
+        ctx.drawImage(browserVideoEl, 0, 0, 640, 360);
+        browserCanvas.toBlob(async (blob) => {
+          if (!blob) return;
+          const fd = new FormData();
+          fd.append("frame", blob, "frame.jpg");
+          try {
+            await fetch("/api/camera/browser-frame", { method: "POST", body: fd });
+          } catch (_) {}
+        }, "image/jpeg", 0.7);
+      }, 200);
+
+      setStatus(d.status);
+      message.textContent = "Browser webcam streaming live to cloud backend.";
+      message.style.color = "#16803c";
+      return;
+    } else if (type === "file") {
       const file = document.getElementById("videoFile").files[0];
       if (!file) {
         throw new Error("Please select an MP4/video file.");
@@ -731,6 +794,15 @@ async function connectCamera() {
 
 async function disconnectCamera() {
   clearMessage();
+
+  if (browserInterval) {
+    clearInterval(browserInterval);
+    browserInterval = null;
+  }
+  if (browserMediaStream) {
+    browserMediaStream.getTracks().forEach(t => t.stop());
+    browserMediaStream = null;
+  }
 
   try {
     const response = await fetch("/api/camera/disconnect", {method: "POST"});
