@@ -69,6 +69,29 @@ def test_root_serves_multipage_html(client):
     assert "validViews" in html
     assert "window.location.hash" in html
 
+    # Verify professional enterprise SVG icons replace emojis
+    assert 'class="nav-svg"' in html
+    assert '<svg class="nav-svg"' in html
+    assert "🖥️" not in html
+    assert "📋" not in html
+    assert "🎓" not in html
+    assert "👥" not in html
+    assert "🪑" not in html
+    assert "⚠️" not in html
+    assert "⚙️" not in html
+
+
+def test_dashboard_summary_infrastructure_counts(client):
+    res = client.get("/api/dashboard/summary")
+    assert res.status_code == 200
+    data = res.json()
+    assert "infrastructure" in data
+    infra = data["infrastructure"]
+    assert "detected_counts" in infra
+    assert isinstance(infra["detected_counts"], dict)
+    assert "detection_valid" in infra
+    assert "detection_state" in infra
+
 
 def test_branding_logo_endpoints(client):
     # Test top-level /logo.png

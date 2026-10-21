@@ -18,13 +18,13 @@ This guide outlines the 7-step live demonstration sequence aligned directly with
    http://localhost:8000/
    ```
    The application features official SkillWatch AI branding with a persistent top navigation bar allowing seamless switching between dedicated views without dropping the camera feed:
-   - 🖥️ **Live Monitoring (`#/live`)**: Executive KPI overview and real-time MJPEG camera preview.
-   - 📋 **Attendance (`#/attendance`)**: Session lifecycle controls and immutable audit log.
-   - 🎓 **Students (`#/students`)**: Consented 3-sample face enrollment and student roster gallery.
-   - 👥 **Occupancy (`#/occupancy`)**: Classroom spatial headcount and recognized vs unknown split.
-   - 🪑 **Infrastructure (`#/infrastructure`)**: Computer vision asset counters and zone filters.
-   - ⚠️ **Compliance (`#/compliance`)**: Multi-rule discrepancy alerts and officer resolution portal.
-   - ⚙️ **System (`#/system`)**: Watchdog hardware metrics and SQLite WAL offline sync queue.
+   - **Live Monitoring (`#/live`)**: Executive KPI overview and real-time MJPEG camera preview.
+   - **Attendance (`#/attendance`)**: Session lifecycle controls and immutable audit log.
+   - **Students (`#/students`)**: Consented 3-sample face enrollment and student roster gallery.
+   - **Occupancy (`#/occupancy`)**: Classroom spatial headcount and recognized vs unknown split.
+   - **Infrastructure (`#/infrastructure`)**: Computer vision asset counters and zone filters.
+   - **Compliance (`#/compliance`)**: Multi-rule discrepancy alerts and officer resolution portal.
+   - **System (`#/system`)**: Watchdog hardware metrics and SQLite WAL offline sync queue.
 
 ---
 
@@ -56,7 +56,7 @@ This guide outlines the 7-step live demonstration sequence aligned directly with
    - Session status changes to `ACTIVE`.
    - SFace automatically identifies confirmed students and registers attendance without human intervention.
    - Navigate to **Occupancy** (`#/occupancy`) to view the headcount matching classroom presence.
-   - In **Compliance** (`#/compliance`), alerts list shows: `✔ No compliance alerts. Classroom operations are within sanctioned thresholds.`
+   - In **Compliance** (`#/compliance`), alerts list shows: `No compliance alerts. Classroom operations are within sanctioned thresholds.`
 
 ---
 
