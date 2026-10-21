@@ -35,6 +35,9 @@ def test_camera_connect_local(client):
     assert upload_data["status"] == "ok"
     assert upload_data["width"] == 640
     assert upload_data["height"] == 360
+    assert "annotated_image" in upload_data
+    assert "recognition" in upload_data
+    assert "occupancy" in upload_data
 
     # Disconnect
     disc_res = client.post("/api/camera/disconnect")
