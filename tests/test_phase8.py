@@ -22,3 +22,15 @@ def test_phase8_zone_assignment():
     result = service.process(dets, [], [], 640, 360)
     assert result["zones"]["front"] == 1
     assert result["detections"][0]["zone"] == "front"
+
+
+def test_phase8_confirmed_face_occupancy():
+    """Verify that confirmed student recognition guarantees room occupancy presence."""
+    service = OccupancyService(history_size=3)
+    # Zero person detections, but 1 confirmed student face
+    rec_results = [{"student_id": "STU-001", "name": "Vansh", "status": "confirmed", "similarity": 0.55}]
+    face_dets = [type("Face", (), {"x": 100, "y": 80, "width": 80, "height": 80, "track_id": 1})()]
+    result = service.process([], rec_results, face_dets, 640, 360)
+    assert result["total_occupancy"] >= 1
+    assert result["recognized_students"] >= 1
+    assert result["unknown_persons"] == 0
