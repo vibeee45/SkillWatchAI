@@ -130,17 +130,17 @@ class CameraManager:
             return False
         return self._set_capture(cv2.VideoCapture(file_path), file_path, "file", camera_id, room)
 
-    def connect_browser_stream(self, camera_id: str = "CAM-001", room: str = "Training Room 01") -> bool:
+    def connect_browser_stream(self, camera_id: str = "CAM-001", room: str = "Training Room 01", source_type: str = "local") -> bool:
         with self._lock:
             self.disconnect(clear_config=False)
-            self.source = "browser"
-            self.source_type = "browser"
+            self.source = source_type
+            self.source_type = source_type
             self.camera_id = camera_id
             self.room = room
             self.last_camera_id = camera_id
             self.last_room = room
-            self.last_source_type = "browser"
-            self.last_source = "browser"
+            self.last_source_type = source_type
+            self.last_source = source_type
             self.is_connected = True
             self.health = "healthy"
             self.last_error = None
@@ -153,7 +153,7 @@ class CameraManager:
 
     def feed_browser_frame(self, frame) -> bool:
         with self._lock:
-            if not self.is_connected or self.source_type != "browser":
+            if not self.is_connected or self.source_type not in ("browser", "local"):
                 return False
             self._latest_frame = frame.copy()
             self._mark_frame_success(frame)
@@ -231,7 +231,7 @@ class CameraManager:
         with self._lock:
             if not self.is_connected:
                 return False, None
-            if self.source_type == "browser":
+            if self.source_type in ("browser", "local"):
                 if self._latest_frame is not None:
                     return True, self._latest_frame.copy()
                 return False, None
