@@ -76,7 +76,12 @@ camera_store = CameraStore(DATA_DIR / "cameras.json")
 camera_lock = threading.Lock()
 face_detector = FaceDetector(BASE_DIR / "models" / "face_detection_yunet_2023mar.onnx", confidence_threshold=0.6)
 face_processor = FaceDetectionProcessor(face_detector)
-frame_pipeline = FramePipeline(sample_every_n=3, target_width=640, target_height=360, ai_processor=face_processor)
+frame_pipeline = FramePipeline(
+    sample_every_n=int(os.getenv("SKILLWATCH_PIPELINE_SAMPLE_EVERY_N", "2")),
+    target_width=640,
+    target_height=360,
+    ai_processor=face_processor,
+)
 
 student_store = StudentStore(DATA_DIR / "students.db")
 representation_store = ProtectedRepresentationStore(DATA_DIR / ".face_key")
@@ -145,9 +150,9 @@ recognition_service = FaceRecognitionService(
     representation_store=representation_store,
     recognizer=sface_recognizer,
     log_path=DATA_DIR / "recognition_log.jsonl",
-    threshold=float(os.getenv("SKILLWATCH_RECOGNITION_THRESHOLD", "0.45")),
-    confirmation_frames=int(os.getenv("SKILLWATCH_RECOGNITION_CONFIRMATION_FRAMES", "3")),
-    switch_confirmation_frames=int(os.getenv("SKILLWATCH_RECOGNITION_SWITCH_FRAMES", "3")),
+    threshold=float(os.getenv("SKILLWATCH_RECOGNITION_THRESHOLD", "0.38")),
+    confirmation_frames=int(os.getenv("SKILLWATCH_RECOGNITION_CONFIRMATION_FRAMES", "2")),
+    switch_confirmation_frames=int(os.getenv("SKILLWATCH_RECOGNITION_SWITCH_FRAMES", "2")),
     switch_margin=float(os.getenv("SKILLWATCH_RECOGNITION_SWITCH_MARGIN", "0.05")),
 )
 enrollment_sessions: dict[str, dict] = {}

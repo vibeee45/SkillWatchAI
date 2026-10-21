@@ -90,7 +90,7 @@ class FaceDetector:
         min_face_size: int = 20,
         face_brightness_min: float = 20.0,
         face_blur_threshold: float = 8.0,
-        track_iou_threshold: float = 0.25,
+        track_iou_threshold: float = 0.20,
         max_missed_frames: int = 8,
     ):
         self.model_path = Path(model_path)

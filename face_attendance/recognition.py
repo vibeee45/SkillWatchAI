@@ -474,6 +474,23 @@ class FaceRecognitionService:
 
             if state.stable_id is None:
 
+                # Allow 1-frame micro-jitter grace for promising candidates
+                # before discarding candidate count entirely.
+                if state.candidate_count > 0 and getattr(state, "candidate_misses", 0) < 1:
+                    state.candidate_misses = getattr(state, "candidate_misses", 0) + 1
+                    state.recent_statuses.append("candidate")
+                    candidate_student = self._find_student(state.candidate_id)
+                    return self._result(
+                        detection,
+                        candidate_student,
+                        state.stable_similarity,
+                        "candidate",
+                        "temporary_candidate_miss",
+                        timestamp,
+                        state.candidate_count,
+                    )
+
+                state.candidate_misses = 0
                 state.candidate_id = None
                 state.candidate_count = 0
                 state.switch_candidate_id = None
@@ -574,8 +591,8 @@ class FaceRecognitionService:
         candidate_id = candidate["student_id"]
 
         # Successful recognition resets temporary failures.
-
         state.temporary_miss_count = 0
+        state.candidate_misses = 0
 
         # ====================================================
         # No stable identity yet
