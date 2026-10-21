@@ -89,10 +89,14 @@ class OccupancyService:
                     zone_counts[zone.zone_id] += 1
                     break
 
-        raw = len(detections)
+        confirmed_count = sum(1 for r in recognition_results if r.get("status") == "confirmed" and r.get("student_id"))
+        min_occupancy = max(confirmed_count, len(face_detections))
+        raw = max(len(detections), min_occupancy)
         self.history.append(raw)
-        smoothed = int(round(float(np.median(list(self.history))))) if self.history else 0
-        recognized = min(len(recognized_track_ids), raw)
+        smoothed = int(round(float(np.median(list(self.history))))) if self.history else raw
+        smoothed = max(smoothed, min_occupancy)
+        recognized = max(len(recognized_track_ids), confirmed_count)
+        recognized = min(recognized, smoothed)
         unknown = max(0, smoothed - recognized)
 
         result = {
