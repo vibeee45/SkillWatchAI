@@ -650,10 +650,23 @@ function setStatus(status) {
   connectBtn.disabled = connected;
 
   if (connected) {
-    stream.src = window.getApiUrl("/api/camera/stream");
+    if (sourceType.value !== "local") {
+      const streamUrl = window.getApiUrl("/api/camera/stream");
+      if (stream.getAttribute("data-connected") !== "true") {
+        stream.src = streamUrl;
+        stream.setAttribute("data-connected", "true");
+      }
+    }
+    stream.style.display = "block";
+    placeholder.style.display = "none";
+  } else {
+    stream.removeAttribute("data-connected");
+    if (sourceType.value !== "local") {
+      stream.src = "";
+    }
+    stream.style.display = "none";
+    placeholder.style.display = "block";
   }
-  stream.style.display = connected ? "block" : "none";
-  placeholder.style.display = connected ? "none" : "block";
   document.getElementById("resolution").textContent = connected ? `Resolution: ${status.width || 0} × ${status.height || 0}` : "Resolution: —";
   document.getElementById("fps").textContent = connected ? `FPS: ${Number(status.actual_fps || status.fps || 0).toFixed(1)}` : "FPS: —";
   document.getElementById("sourceLabel").textContent = `Source: ${status.source_type || "—"}`;
@@ -709,21 +722,54 @@ async function connectCamera() {
       }
       const ctx = browserCanvas.getContext("2d");
       if (browserInterval) clearInterval(browserInterval);
+
+      let inFlight = false;
+      let frameCounter = 0;
+      let lastFpsTime = performance.now();
+
       browserInterval = setInterval(() => {
-        if (!browserVideoEl || browserVideoEl.readyState < 2) return;
+        if (!browserVideoEl || browserVideoEl.readyState < 2 || inFlight) return;
         ctx.drawImage(browserVideoEl, 0, 0, 640, 360);
         browserCanvas.toBlob(async (blob) => {
           if (!blob) return;
+          inFlight = true;
           const fd = new FormData();
           fd.append("frame", blob, "frame.jpg");
           try {
-            await fetch("/api/camera/browser-frame", { method: "POST", body: fd });
+            const res = await fetch("/api/camera/browser-frame", { method: "POST", body: fd });
+            if (res.ok) {
+              const resData = await res.json();
+              if (resData.annotated_image) {
+                stream.src = resData.annotated_image;
+                stream.style.display = "block";
+                placeholder.style.display = "none";
+              }
+              if (window.renderLiveRecognition && resData.recognition) {
+                window.renderLiveRecognition(resData.recognition);
+              }
+              if (window.renderLiveOccupancy && resData.occupancy) {
+                window.renderLiveOccupancy(resData.occupancy);
+              }
+              frameCounter++;
+              const now = performance.now();
+              if (now - lastFpsTime >= 1000) {
+                const fpsVal = (frameCounter * 1000 / (now - lastFpsTime)).toFixed(1);
+                document.getElementById("fps").textContent = `FPS: ${fpsVal}`;
+                const kpiFps = document.getElementById("kpiCameraFps");
+                if (kpiFps) kpiFps.textContent = `FPS: ${fpsVal} · Live Streaming`;
+                frameCounter = 0;
+                lastFpsTime = now;
+              }
+            }
           } catch (_) {}
-        }, "image/jpeg", 0.7);
-      }, 200);
+          finally {
+            inFlight = false;
+          }
+        }, "image/jpeg", 0.75);
+      }, 100);
 
       setStatus(d.status);
-      message.textContent = "Local PC Camera connected and streaming live.";
+      message.textContent = "Local PC Camera streaming continuously with real-time face recognition.";
       message.style.color = "#16803c";
       return;
     } else if (type === "upload") {
@@ -794,6 +840,8 @@ async function disconnectCamera() {
     try { browserVideoEl.pause(); } catch (_) {}
     browserVideoEl.srcObject = null;
   }
+  stream.src = "";
+  stream.removeAttribute("data-connected");
 
   try {
     const response = await fetch("/api/camera/disconnect", {method: "POST"});
@@ -1074,6 +1122,22 @@ loadSavedCameras();
   }
   function escapeHtml(v){ return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+  window.renderLiveRecognition = function(results){
+    if(!results || !table) return;
+    table.innerHTML = '';
+    if(!results.length){
+      table.innerHTML = '<tr><td colspan="5">Scanning for faces in live camera feed...</td></tr>';
+      return;
+    }
+    results.forEach(r=>{
+      const tr=document.createElement('tr');
+      const isConfirmed = r.status === 'confirmed';
+      const color = isConfirmed ? '#16803c' : (r.status === 'candidate' ? '#b54708' : '#e65100');
+      tr.innerHTML=`<td>${r.track_id ?? '—'}</td><td><strong>${escapeHtml(r.name || 'Unknown')}</strong></td><td><span style="color:${color};font-weight:600;">${escapeHtml(r.status || 'unknown')}</span></td><td>${Number(r.similarity||0).toFixed(3)}</td><td>${r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : '—'}</td>`;
+      table.appendChild(tr);
+    });
+  };
+
   async function refresh(){
     try{ const r=await fetch('/api/recognition/status'); if(!r.ok) return; renderStatus(await r.json()); }catch(_){}
   }
@@ -1119,6 +1183,15 @@ loadSavedCameras();
     $('occupancyStatus').textContent=`YOLOv8n person detector · active tracks ${o.active_tracks||0} · raw ${o.raw_occupancy||0} · smoothed ${o.smoothed_occupancy||0} · last inference ${Number(det.last_inference_ms||0).toFixed(1)} ms`;
     if(Array.isArray(o.zone_config)) $('occupancyZones').value=JSON.stringify(o.zone_config);
   }
+  window.renderLiveOccupancy = function(o){
+    if($('occupancyTotal')) $('occupancyTotal').textContent=o.total??0;
+    if($('occupancyRecognized')) $('occupancyRecognized').textContent=o.recognized??0;
+    if($('occupancyUnknown')) $('occupancyUnknown').textContent=o.unknown??0;
+    const kpiOcc=document.getElementById('kpiOccupancy');
+    const kpiSub=document.getElementById('kpiOccupancySub');
+    if(kpiOcc) kpiOcc.textContent=o.total??0;
+    if(kpiSub) kpiSub.textContent=`${o.recognized??0} recognized · ${o.unknown??0} unknown`;
+  };
   async function refresh(){try{const r=await fetch('/api/occupancy/status');if(!r.ok)return;render(await r.json());}catch(_){}}
   async function save(){try{let zones;try{zones=JSON.parse($('occupancyZones').value);}catch(_){throw Error('Zone JSON is invalid.');}const r=await fetch('/api/occupancy/zones',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zones})});const d=await r.json();if(!r.ok)throw Error(d.detail||'Could not save zones.');$('occupancyZones').value=JSON.stringify(d.zones);msg('Zones saved.',true);refresh();}catch(e){msg(e.message);}}
   async function reset(){try{const r=await fetch('/api/occupancy/reset',{method:'POST'});const d=await r.json();if(!r.ok)throw Error(d.detail||'Reset failed.');render({occupancy:d.status,detector:{}});msg('Occupancy state reset.',true);}catch(e){msg(e.message);}}
