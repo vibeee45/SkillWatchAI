@@ -34,6 +34,7 @@ from offline.sync_worker import EventSyncWorker
 from database import init_db
 import json
 import io
+import base64
 from datetime import datetime, timezone
 from typing import Any
 
@@ -660,7 +661,93 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
     if img is None:
         raise HTTPException(status_code=400, detail="Invalid image frame.")
     camera_manager.feed_browser_frame(img)
-    return {"status": "ok", "frames": camera_manager.frame_count, "width": int(img.shape[1]), "height": int(img.shape[0])}
+
+    timestamp_iso = datetime.now(timezone.utc).isoformat()
+    frame_id = f"{camera_manager.camera_id or 'LOCAL'}-{camera_manager.frame_count:08d}"
+
+    # 1. Face detection & recognition
+    face_detections = face_detector.detect(img)
+    recognition_results = []
+    try:
+        recognition_results = recognition_service.recognize(
+            img,
+            face_detections,
+            camera_id=camera_manager.camera_id,
+            frame_id=frame_id,
+            timestamp=timestamp_iso,
+        )
+    except Exception as exc:
+        logging.getLogger("skillwatch.recognition").warning("Recognition error: %s", exc)
+
+    recognition_dicts = [r.as_dict() for r in recognition_results]
+
+    # 2. Person detection & occupancy
+    person_detections = []
+    try:
+        person_detections = person_detector.detect(img)
+    except Exception:
+        pass
+
+    occupancy_data = {}
+    try:
+        occupancy_data = occupancy_service.process(
+            person_detections,
+            recognition_dicts,
+            face_detector.last_detections,
+            img.shape[1],
+            img.shape[0],
+        )
+    except Exception:
+        pass
+
+    # 3. Automatic attendance logging
+    active_session = attendance_store.active_session_for_camera(camera_manager.camera_id or "")
+    if active_session:
+        for r in recognition_results:
+            d = r.as_dict()
+            if d.get("status") == "confirmed" and d.get("student_id"):
+                record, created = attendance_store.mark_present(
+                    active_session["id"], d["student_id"], float(d.get("similarity", 0.0)), camera_manager.camera_id
+                )
+                if created:
+                    _queue_event(
+                        "attendance_created",
+                        {"attendance": record, "session_id": active_session["id"]},
+                        event_id=f"attendance:{active_session['id']}:{d['student_id']}",
+                    )
+
+    # 4. Construct AI result for annotations
+    ai_result = {
+        "processor": "face_detection",
+        "detections": [d.as_dict() for d in face_detections],
+        "recognition": recognition_dicts,
+        "occupancy": occupancy_data,
+        "infrastructure": infrastructure_observations.status(),
+    }
+    frame_pipeline.last_ai_result = ai_result
+
+    # 5. Annotate frame with detections and recognition labels
+    annotated = _annotate_person_detections(img, ai_result)
+    annotated = _annotate_infrastructure_detections(annotated, ai_result)
+    annotated = _annotate_face_detections(annotated, ai_result)
+
+    ok, encoded = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    b64_image = f"data:image/jpeg;base64,{base64.b64encode(encoded).decode('ascii')}" if ok else None
+
+    return {
+        "status": "ok",
+        "frames": camera_manager.frame_count,
+        "width": int(img.shape[1]),
+        "height": int(img.shape[0]),
+        "annotated_image": b64_image,
+        "face_count": len(face_detections),
+        "recognition": recognition_dicts,
+        "occupancy": {
+            "total": occupancy_data.get("smoothed_occupancy", occupancy_data.get("total_occupancy", 0)),
+            "recognized": occupancy_data.get("recognized_students", 0),
+            "unknown": occupancy_data.get("unknown_persons", 0),
+        },
+    }
 
 
 @app.post("/api/camera/connect-upload")
@@ -733,20 +820,27 @@ def _annotate_face_detections(frame, ai_result):
         x2 = max(x + 1, min(output.shape[1] - 1, x + w))
         y2 = max(y + 1, min(output.shape[0] - 1, y + h))
         recognition = recognition_by_track.get(track_id)
+        if not recognition and len(ai_result.get("recognition", [])) == 1 and len(detections) == 1:
+            recognition = ai_result.get("recognition", [])[0]
+        color = (0, 220, 0)
         if recognition:
             name = recognition.get("name") or "Unknown"
             status = recognition.get("status", "unknown")
             similarity = float(recognition.get("similarity", 0.0))
             if status == "confirmed":
                 label = f"{name} | {similarity:.2f}"
+                color = (0, 220, 0)
             elif status == "candidate":
                 label = f"Confirming: {name} | {similarity:.2f}"
+                color = (0, 215, 255)
             else:
                 label = f"Unknown | {similarity:.2f}"
+                color = (0, 140, 255)
         else:
             label = f"Face {track_id or '-'} | {confidence:.2f}"
-        cv2.rectangle(output, (x, y), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(output, label, (x, max(18, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+            color = (0, 220, 0)
+        cv2.rectangle(output, (x, y), (x2, y2), color, 2)
+        cv2.putText(output, label, (x, max(18, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
     cv2.putText(output, f"Faces: {len(detections)}", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
     return output
 
@@ -1243,11 +1337,30 @@ def frame_generator():
         if not ok:
             continue
         yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + encoded.tobytes() + b"\r\n"
+        time.sleep(0.04)
 
 
 @app.get("/api/camera/stream")
 def camera_stream():
     return StreamingResponse(frame_generator(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.get("/api/camera/latest-frame")
+def camera_latest_frame():
+    success, packet = camera_manager.get_latest_frame_packet()
+    if not success or packet is None:
+        raise HTTPException(status_code=503, detail="No camera frame available.")
+    preview_frame = _annotate_person_detections(packet.frame, frame_pipeline.last_ai_result)
+    preview_frame = _annotate_infrastructure_detections(preview_frame, frame_pipeline.last_ai_result)
+    preview_frame = _annotate_face_detections(preview_frame, frame_pipeline.last_ai_result)
+    ok, encoded = cv2.imencode(".jpg", preview_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to encode frame.")
+    return Response(
+        content=encoded.tobytes(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @app.get("/api/camera/uploads/{filename}")
