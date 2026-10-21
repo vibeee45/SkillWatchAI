@@ -109,3 +109,24 @@ SkillWatch AI includes a **Dynamic Cloud Backend Resolver**:
 - **Render PostgreSQL Compatibility:** Auto-detects and converts Render's `postgres://` connection string format to SQLAlchemy-compliant `postgresql://`.
 - **Headless OpenCV:** `render_build.sh` uses `opencv-contrib-python-headless` to eliminate any missing `libGL.so.1` or X11 dependencies on Linux cloud servers.
 - **Zero-Download Models:** All 3 ONNX AI models (`yunet`, `sface`, `yolov8n`) are tracked directly in git, eliminating network failure risks during build time.
+
+---
+
+## 6. Camera Source Configuration & Privacy
+
+The camera module supports three distinct operational sources:
+
+1. **Local PC Camera:**
+   - Uses browser `navigator.mediaDevices.getUserMedia` to capture the client's webcam and stream live frames to `/api/camera/browser-frame`.
+   - Enables full real-time AI inference (YOLOv8 person occupancy, SFace recognition, equipment compliance) whether the backend is hosted in the cloud (Render) or running on localhost.
+
+2. **Classroom Camera:**
+   - Connects directly to physical training centre RTSP / IP CCTV streams (`rtsp://username:password@ip:port/stream`).
+
+3. **Media Video Upload:**
+   - Allows operators to upload custom `.mp4`, `.avi`, `.mov`, or `.mkv` classroom recordings.
+   - Automatically loops videos seamlessly for ongoing monitoring and stress testing.
+
+4. **Public Privacy Protection:**
+   - All bundled test videos have been completely removed from git tracking and ignored via `.gitignore` to protect privacy.
+
