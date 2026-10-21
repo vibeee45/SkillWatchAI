@@ -681,10 +681,13 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
 
     recognition_dicts = [r.as_dict() for r in recognition_results]
 
-    # 2. Person detection & occupancy
+    # 2. Person detection & occupancy (cadence execution for high streaming FPS)
     person_detections = []
     try:
-        person_detections = person_detector.detect(img)
+        if camera_manager.frame_count % 3 == 0 or not person_detector.last_detections:
+            person_detections = person_detector.detect(img)
+        else:
+            person_detections = person_detector.last_detections
     except Exception:
         pass
 
@@ -828,7 +831,7 @@ def _annotate_face_detections(frame, ai_result):
             status = recognition.get("status", "unknown")
             similarity = float(recognition.get("similarity", 0.0))
             if status == "confirmed":
-                label = f"{name} | {similarity:.2f}"
+                label = f"{name} | {similarity:.2f} [CONFIRMED]"
                 color = (0, 220, 0)
             elif status == "candidate":
                 label = f"Confirming: {name} | {similarity:.2f}"
