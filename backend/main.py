@@ -100,7 +100,7 @@ person_detector = LightweightPersonDetector(
 occupancy_service = OccupancyService(history_size=int(os.getenv("SKILLWATCH_OCCUPANCY_SMOOTHING_FRAMES", "5")))
 infrastructure_detector = InfrastructureDetector(
     BASE_DIR / "models" / "yolov8n.onnx",
-    confidence_threshold=float(os.getenv("SKILLWATCH_INFRA_CONFIDENCE", "0.25")),
+    confidence_threshold=float(os.getenv("SKILLWATCH_INFRA_CONFIDENCE", "0.15")),
     nms_threshold=float(os.getenv("SKILLWATCH_INFRA_NMS", "0.45")),
 )
 infrastructure_observations = InfrastructureObservationService()
@@ -297,7 +297,7 @@ def dashboard_summary():
             },
         },
         "infrastructure": {
-            "detected_counts": infra_status.get("current_counts", {}),
+            "detected_counts": infra_status.get("counts_by_class") or infra_status.get("current_counts") or {},
             "detection_valid": infra_status.get("detection_valid", False),
             "detection_state": infra_status.get("detection_state", "UNKNOWN"),
         },

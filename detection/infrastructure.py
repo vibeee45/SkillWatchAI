@@ -15,10 +15,13 @@ except ImportError:  # OpenCV fallback keeps existing installations runnable.
 
 
 COCO_EQUIPMENT_CLASSES: dict[int, str] = {
-    56: "chair",
-    60: "table",       # COCO class is dining table; validate on classroom footage.
-    62: "tv_monitor",
-    63: "laptop",
+    13: "bench",       # Classroom benches / benches
+    56: "chair",       # Chairs
+    57: "couch",       # Lounge chairs / seating
+    60: "table",       # Dining tables / classroom desks
+    62: "tv_monitor",  # TVs / computer monitors / projector screens
+    63: "laptop",      # Laptops / notebooks
+    66: "keyboard",    # Keyboards
 }
 
 
@@ -59,7 +62,7 @@ class InfrastructureDetector:
         self,
         model_path: str | Path,
         input_size: int = 640,
-        confidence_threshold: float = 0.25,
+        confidence_threshold: float = 0.15,
         nms_threshold: float = 0.45,
         min_area: int = 100,
         classes: dict[int, str] | None = None,

@@ -1151,11 +1151,15 @@ loadSavedCameras();
   }
 
   function renderInfrastructure(data) {
-    const counts = data.current_counts || {};
-    $('infraChairs').textContent = counts.chair || 0;
-    $('infraTables').textContent = counts.table || 0;
-    $('infraLaptops').textContent = counts.laptop || 0;
-    $('infraMonitors').textContent = counts.tv_monitor || 0;
+    const counts = data.current_counts || data.counts_by_class || {};
+    const chairs = (counts.chair || 0) + (counts.bench || 0) + (counts.couch || 0);
+    const tables = (counts.table || 0) + (counts.dining_table || 0);
+    const laptops = (counts.laptop || 0);
+    const monitors = (counts.tv_monitor || 0) + (counts.tv || 0);
+    $('infraChairs').textContent = chairs;
+    $('infraTables').textContent = tables;
+    $('infraLaptops').textContent = laptops;
+    $('infraMonitors').textContent = monitors;
 
     const state = data.detection_state || 'IDLE';
     $('infraState').textContent = state;
