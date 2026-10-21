@@ -156,6 +156,8 @@ class CameraManager:
             if not self.is_connected or self.source_type not in ("browser", "local"):
                 return False
             self._latest_frame = frame.copy()
+            self.frozen_frame_count = 0
+            self.health = "healthy"
             self._mark_frame_success(frame)
             return True
 
@@ -172,6 +174,12 @@ class CameraManager:
             self._fps_window_frames = 0
         self.consecutive_failures = 0
         self.last_error = None
+
+        if self.source_type in ("browser", "local"):
+            self.frozen_frame_count = 0
+            self.health = "healthy"
+            self.is_connected = True
+            return
 
         # Detect a truly frozen feed and persist lightweight image-quality metrics.
         # A tiny grayscale probe avoids hashing/retaining full-resolution frames.
