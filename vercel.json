@@ -1,0 +1,25 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/api/:match*",
+      "destination": "https://skillwatch-backend.onrender.com/api/:match*"
+    },
+    {
+      "source": "/logo.png",
+      "destination": "/frontend/logo.png"
+    },
+    {
+      "source": "/favicon.ico",
+      "destination": "/frontend/favicon.png"
+    },
+    {
+      "source": "/assets/:match*",
+      "destination": "/frontend/assets/:match*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/frontend/index.html"
+    }
+  ]
+}

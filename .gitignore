@@ -6,11 +6,10 @@ __pycache__/
 
 data/*
 evidence/*
-models/*
 
 !data/.gitkeep
 !evidence/.gitkeep
-!models/.gitkeep
 
 .vscode/
 .idea/
+.vercel
