@@ -39,6 +39,11 @@
     .nav-tab.active {
       background: #2563eb; color: #ffffff; box-shadow: 0 2px 8px rgba(37,99,235,.35);
     }
+    .nav-svg {
+      width: 15px; height: 15px; stroke: currentColor; stroke-width: 2;
+      fill: none; stroke-linecap: round; stroke-linejoin: round; display: inline-block;
+      vertical-align: middle; flex-shrink: 0;
+    }
     .nav-badge {
       background: #ef4444; color: white; padding: 1px 6px; border-radius: 10px;
       font-size: 11px; font-weight: 700; display: none;
@@ -139,26 +144,26 @@
 
     <nav class="nav-tabs" id="navTabs">
       <a href="#/live" class="nav-tab active" data-view="live">
-        <span class="nav-icon">🖥️</span> Live Monitoring
+        <svg class="nav-svg" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> Live Monitoring
       </a>
       <a href="#/attendance" class="nav-tab" data-view="attendance">
-        <span class="nav-icon">📋</span> Attendance
+        <svg class="nav-svg" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Attendance
       </a>
       <a href="#/students" class="nav-tab" data-view="students">
-        <span class="nav-icon">🎓</span> Students
+        <svg class="nav-svg" viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg> Students
       </a>
       <a href="#/occupancy" class="nav-tab" data-view="occupancy">
-        <span class="nav-icon">👥</span> Occupancy
+        <svg class="nav-svg" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Occupancy
       </a>
       <a href="#/infrastructure" class="nav-tab" data-view="infrastructure">
-        <span class="nav-icon">🪑</span> Infrastructure
+        <svg class="nav-svg" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> Infrastructure
       </a>
       <a href="#/compliance" class="nav-tab" data-view="compliance">
-        <span class="nav-icon">⚠️</span> Compliance
+        <svg class="nav-svg" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Compliance
         <span class="nav-badge" id="navAlertsBadge">0</span>
       </a>
       <a href="#/system" class="nav-tab" data-view="system">
-        <span class="nav-icon">⚙️</span> System
+        <svg class="nav-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> System
       </a>
     </nav>
 
@@ -1271,7 +1276,7 @@ loadSavedCameras();
   function renderAlerts(alerts) {
     const container = $('activeAlertsContainer');
     if (!alerts || !alerts.length) {
-      container.innerHTML = '<div style="padding:16px;text-align:center;color:#027a48;background:#ecfdf3;border:1px solid #a6f4c5;border-radius:8px;font-size:13px;">✔ No compliance alerts. Classroom operations are within sanctioned thresholds.</div>';
+      container.innerHTML = '<div style="padding:16px;text-align:center;color:#027a48;background:#ecfdf3;border:1px solid #a6f4c5;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:8px;"><svg style=\"width:16px;height:16px;stroke:#027a48;stroke-width:2.5;fill:none;\" viewBox=\"0 0 24 24\"><path d=\"M20 6L9 17l-5-5\"/></svg> No compliance alerts. Classroom operations are within sanctioned thresholds.</div>';
       return;
     }
 
