@@ -18,6 +18,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_SQLITE_URL = f"sqlite:///{DATA_DIR / 'skillwatch.db'}"
 DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("SKILLWATCH_DATABASE_URL") or DEFAULT_SQLITE_URL
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # SQLite requires check_same_thread=False for multi-threaded FastAPI workers
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}

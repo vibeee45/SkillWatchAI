@@ -582,6 +582,17 @@
         </div>
 
         <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:16px;">
+          <strong style="font-size:14px;">Cloud Deployment & Backend API Endpoint</strong>
+          <div style="font-size:12px;color:#66737d;margin-top:2px;">Configured to communicate with the FastAPI backend on Render or local machine.</div>
+          <div style="display:flex;gap:10px;margin-top:10px;align-items:center;flex-wrap:wrap;">
+            <input id="sysBackendInput" placeholder="https://skillwatch-backend.onrender.com" style="flex:1;min-width:260px;" />
+            <button class="primary small-btn" id="sysSaveBackendBtn">Save Backend URL</button>
+            <button class="danger small-btn" id="sysResetBackendBtn">Use Same-Origin</button>
+          </div>
+          <div id="sysBackendStatus" style="font-size:12px;margin-top:6px;color:#16803c;"></div>
+        </div>
+
+        <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:16px;">
           <strong style="font-size:14px;">Deployed AI Models & Engine Specifications</strong>
           <table class="student-table" style="margin-top:8px;">
             <thead><tr><th>Model</th><th>Framework</th><th>Size</th><th>Role</th><th>Inference Target</th></tr></thead>
@@ -597,6 +608,24 @@
   </main>
 
 <script>
+// Dynamic API Base Resolver for Vercel <-> Render Cloud Deployment
+window.getApiUrl = function(path) {
+  if (!path.startsWith('/')) path = '/' + path;
+  let backend = '';
+  try {
+    backend = window.SKILLWATCH_BACKEND_URL || localStorage.getItem('skillwatch_backend_url') || '';
+  } catch(_) {}
+  return backend ? backend.replace(/\/+$/, '') + path : path;
+};
+
+const _nativeFetch = window.fetch;
+window.fetch = function(resource, init) {
+  if (typeof resource === 'string' && resource.startsWith('/api/')) {
+    resource = window.getApiUrl(resource);
+  }
+  return _nativeFetch(resource, init);
+};
+
 const sourceType = document.getElementById("sourceType");
 const deviceFields = document.getElementById("deviceFields");
 const rtspFields = document.getElementById("rtspFields");
@@ -627,6 +656,9 @@ function setStatus(status) {
   disconnectBtn.disabled = !connected;
   connectBtn.disabled = connected;
 
+  if (connected) {
+    stream.src = window.getApiUrl("/api/camera/stream");
+  }
   stream.style.display = connected ? "block" : "none";
   placeholder.style.display = connected ? "none" : "block";
   document.getElementById("resolution").textContent = connected ? `Resolution: ${status.width || 0} × ${status.height || 0}` : "Resolution: —";
@@ -1553,6 +1585,35 @@ loadSavedCameras();
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // Cloud Backend Endpoint settings controller
+  const backendInput = $('sysBackendInput');
+  const backendStatus = $('sysBackendStatus');
+  const savedBackend = localStorage.getItem('skillwatch_backend_url') || '';
+  if (backendInput) backendInput.value = savedBackend;
+  if (backendStatus) {
+    backendStatus.textContent = savedBackend ? `Connected to Cloud: ${savedBackend}` : 'Connected to: Same-Origin (Default)';
+  }
+
+  $('sysSaveBackendBtn')?.addEventListener('click', () => {
+    const val = (backendInput?.value || '').trim();
+    if (!val) {
+      localStorage.removeItem('skillwatch_backend_url');
+      if (backendStatus) backendStatus.textContent = 'Using Same-Origin (Default)';
+    } else {
+      localStorage.setItem('skillwatch_backend_url', val);
+      if (backendStatus) backendStatus.textContent = `Saved Cloud Backend: ${val}`;
+    }
+    alert('Backend URL saved. Reloading views...');
+    window.location.reload();
+  });
+
+  $('sysResetBackendBtn')?.addEventListener('click', () => {
+    localStorage.removeItem('skillwatch_backend_url');
+    if (backendInput) backendInput.value = '';
+    if (backendStatus) backendStatus.textContent = 'Using Same-Origin (Default)';
+    window.location.reload();
   });
 
   updateSystemView();

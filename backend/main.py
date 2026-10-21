@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -47,6 +48,14 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="SkillWatch AI", description="AI-based real-time monitoring of training centres", version="0.7.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 ASSETS_DIR = FRONTEND_DIR / "assets"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
