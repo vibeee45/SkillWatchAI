@@ -274,6 +274,77 @@
           </div>
         </section>
       </div>
+
+      <!-- QUICK ADD STUDENT ON FRONT PAGE -->
+      <section class="card" id="frontQuickAddCard" style="margin-top:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div>
+            <h2 style="margin:0;display:flex;align-items:center;gap:8px;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+              Quick Add Student (Camera Face Enrollment)
+            </h2>
+            <div style="font-size:13px;color:#66737d;margin-top:4px;">
+              Easily add a new student entry directly using the active camera feed above. Features are protected and recognized live.
+            </div>
+          </div>
+          <button class="secondary small-btn" id="frontRefreshStudentsBtn" type="button">Refresh List</button>
+        </div>
+
+        <div class="student-grid" style="margin-top:14px;">
+          <div>
+            <label for="frontStudentId">Student ID</label>
+            <input id="frontStudentId" placeholder="e.g. STU-002" />
+          </div>
+          <div>
+            <label for="frontStudentName">Student Name</label>
+            <input id="frontStudentName" placeholder="e.g. Alex Sharma" />
+          </div>
+          <div>
+            <label for="frontStudentBatch">Batch</label>
+            <input id="frontStudentBatch" value="Batch A - 2026" placeholder="Batch A - 2026" />
+          </div>
+        </div>
+
+        <label class="consent" style="margin-top:10px;">
+          <input type="checkbox" id="frontConsentConfirm" checked />
+          <span>I confirm this student has authorized face biometric data for this training session prototype.</span>
+        </label>
+
+        <div class="student-actions" style="margin-top:14px;">
+          <button class="primary" id="frontQuickEnrollBtn" type="button" style="background:#2563eb;font-weight:600;">
+            ⚡ 1-Click Enroll from Camera
+          </button>
+          <button class="secondary" id="frontStartEnrollBtn" type="button">Start Step-by-Step</button>
+          <button class="secondary" id="frontCaptureSampleBtn" type="button" disabled>Capture Sample (0/3)</button>
+          <button class="primary" id="frontSaveEnrollBtn" type="button" disabled>Save Student</button>
+          <button class="secondary" id="frontCancelEnrollBtn" type="button" disabled>Cancel</button>
+        </div>
+
+        <div class="student-progress" id="frontEnrollProgress" style="margin-top:12px;">Camera ready. Enter student details above and click '1-Click Enroll from Camera'.</div>
+        <div class="student-message" id="frontStudentMessage" style="margin-top:8px;"></div>
+
+        <div class="student-list" style="margin-top:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <strong style="font-size:13px;">Enrolled Students List</strong>
+            <span id="frontStudentCount" style="font-size:12px;color:#66737d;">0 enrolled</span>
+          </div>
+          <table class="student-table">
+            <thead>
+              <tr>
+                <th>Student ID</th>
+                <th>Name</th>
+                <th>Batch</th>
+                <th>Samples</th>
+                <th>Quality</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="frontStudentTableBody">
+              <tr><td colspan="6">Loading enrolled students...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
 
     
@@ -991,6 +1062,7 @@ loadSavedCameras();
 </script>
 <script>
 (function(){
+  // Main student management tab elements
   const studentId = document.getElementById('studentId');
   const studentName = document.getElementById('studentName');
   const studentBatch = document.getElementById('studentBatch');
@@ -1003,18 +1075,199 @@ loadSavedCameras();
   const msg = document.getElementById('studentMessage');
   const search = document.getElementById('studentSearch');
   const body = document.getElementById('studentTableBody');
+  const refreshBtn = document.getElementById('refreshStudentsBtn');
+
+  // Front-page quick add elements
+  const frontStudentId = document.getElementById('frontStudentId');
+  const frontStudentName = document.getElementById('frontStudentName');
+  const frontStudentBatch = document.getElementById('frontStudentBatch');
+  const frontConsentConfirm = document.getElementById('frontConsentConfirm');
+  const frontQuickEnrollBtn = document.getElementById('frontQuickEnrollBtn');
+  const frontStartEnrollBtn = document.getElementById('frontStartEnrollBtn');
+  const frontCaptureSampleBtn = document.getElementById('frontCaptureSampleBtn');
+  const frontSaveEnrollBtn = document.getElementById('frontSaveEnrollBtn');
+  const frontCancelEnrollBtn = document.getElementById('frontCancelEnrollBtn');
+  const frontProgress = document.getElementById('frontEnrollProgress');
+  const frontMsg = document.getElementById('frontStudentMessage');
+  const frontRefreshBtn = document.getElementById('frontRefreshStudentsBtn');
+  const frontBody = document.getElementById('frontStudentTableBody');
+  const frontCount = document.getElementById('frontStudentCount');
+
   let activeStudentId = null;
   let sampleCount = 0;
+  let frontActiveStudentId = null;
+  let frontSampleCount = 0;
 
-  function message(text, ok=false){ msg.textContent=text; msg.style.color=ok ? '#16803c' : '#b42318'; }
-  function setProgress(text){ progress.textContent=text; }
+  function message(text, ok=false){
+    if (msg) { msg.textContent = text; msg.style.color = ok ? '#16803c' : '#b42318'; }
+  }
+  function setProgress(text){
+    if (progress) progress.textContent = text;
+  }
   function setButtons(active){
-    captureBtn.disabled = !active || sampleCount >= 3;
-    saveBtn.disabled = !active || sampleCount < 3;
-    cancelBtn.disabled = !active;
-    startBtn.disabled = active;
+    if (captureBtn) captureBtn.disabled = !active || sampleCount >= 3;
+    if (saveBtn) saveBtn.disabled = !active || sampleCount < 3;
+    if (cancelBtn) cancelBtn.disabled = !active;
+    if (startBtn) startBtn.disabled = active;
   }
 
+  function frontMessage(text, ok=false){
+    if (frontMsg) { frontMsg.textContent = text; frontMsg.style.color = ok ? '#16803c' : '#b42318'; }
+  }
+  function frontSetProgress(text){
+    if (frontProgress) frontProgress.textContent = text;
+  }
+  function frontSetButtons(active){
+    if (frontCaptureSampleBtn) {
+      frontCaptureSampleBtn.disabled = !active || frontSampleCount >= 3;
+      frontCaptureSampleBtn.textContent = `Capture Sample (${frontSampleCount}/3)`;
+    }
+    if (frontSaveEnrollBtn) frontSaveEnrollBtn.disabled = !active || frontSampleCount < 3;
+    if (frontCancelEnrollBtn) frontCancelEnrollBtn.disabled = !active;
+    if (frontStartEnrollBtn) frontStartEnrollBtn.disabled = active;
+    if (frontQuickEnrollBtn) frontQuickEnrollBtn.disabled = active;
+  }
+
+  function getNextStudentId(students){
+    let maxId = 0;
+    students.forEach(s => {
+      const m = String(s.student_id).match(/STU-(\d+)/i);
+      if (m) {
+        const val = parseInt(m[1], 10);
+        if (val > maxId) maxId = val;
+      }
+    });
+    return 'STU-' + String(maxId + 1).padStart(3, '0');
+  }
+
+  // --- Front Page 1-Click Fast Camera Enrollment ---
+  async function quickEnrollFromFront(){
+    frontMessage('');
+    const sId = (frontStudentId.value || '').trim();
+    const sName = (frontStudentName.value || '').trim();
+    const sBatch = (frontStudentBatch.value || 'Batch A - 2026').trim();
+    const consent = frontConsentConfirm ? frontConsentConfirm.checked : true;
+
+    if (!sId || !sName) {
+      frontMessage('Please enter Student ID and Name before enrolling.');
+      return;
+    }
+    if (!consent) {
+      frontMessage('Please confirm student biometric consent authorization.');
+      return;
+    }
+
+    frontQuickEnrollBtn.disabled = true;
+    const originalText = frontQuickEnrollBtn.textContent;
+    frontQuickEnrollBtn.textContent = '⚡ Enrolling from live camera...';
+    frontSetProgress('Capturing face representation directly from active camera...');
+
+    try {
+      const r = await fetch('/api/students/quick-add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          student_id: sId,
+          name: sName,
+          batch: sBatch,
+          consent_confirmed: consent
+        })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'Quick enrollment failed.');
+
+      frontMessage(`✓ ${d.message} Face recognized live!`, true);
+      frontSetProgress(`Enrolled ${d.student.name} (${d.student.student_id}) with protected feature vectors. Quality: ${(Number(d.quality_score)*100).toFixed(0)}%.`);
+      
+      // Clear name and advance student ID
+      frontStudentName.value = '';
+      await loadStudents();
+    } catch(e) {
+      frontMessage(e.message || 'Enrollment error. Ensure camera is connected and face is clearly visible.');
+      frontSetProgress('Enrollment failed: ' + (e.message || 'Check camera stream.'));
+    } finally {
+      frontQuickEnrollBtn.disabled = false;
+      frontQuickEnrollBtn.textContent = originalText;
+    }
+  }
+
+  // --- Front Page Step-by-Step Enrollment ---
+  async function frontStartEnrollment(){
+    frontMessage('');
+    const payload = {
+      student_id: (frontStudentId.value || '').trim(),
+      name: (frontStudentName.value || '').trim(),
+      batch: (frontStudentBatch.value || '').trim(),
+      consent_confirmed: frontConsentConfirm.checked
+    };
+    if (!payload.student_id || !payload.name) {
+      frontMessage('Please provide Student ID and Name.');
+      return;
+    }
+    try{
+      const r = await fetch('/api/students/enrollment/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'Could not start enrollment.');
+      frontActiveStudentId = payload.student_id;
+      frontSampleCount = 0;
+      frontSetProgress('Enrollment started. Keep your face centered in camera and capture 3 valid samples.');
+      frontMessage(d.message, true);
+      frontSetButtons(true);
+    } catch(e){
+      frontMessage(e.message);
+    }
+  }
+
+  async function frontCaptureSample(){
+    if (!frontActiveStudentId) return;
+    frontMessage('');
+    try {
+      const r = await fetch('/api/students/enrollment/capture?student_id=' + encodeURIComponent(frontActiveStudentId), {method: 'POST'});
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'Sample capture failed.');
+      frontSampleCount = d.sample_count;
+      frontSetProgress(`Valid samples: ${frontSampleCount}/3 · confidence ${d.quality.confidence} · brightness ${d.quality.brightness} · blur ${d.quality.blur_score}`);
+      frontMessage(d.message, true);
+      frontSetButtons(true);
+    } catch(e) {
+      frontMessage(e.message);
+    }
+  }
+
+  async function frontSaveEnrollment(){
+    if (!frontActiveStudentId) return;
+    try {
+      const r = await fetch('/api/students/enrollment/finalize?student_id=' + encodeURIComponent(frontActiveStudentId), {method: 'POST'});
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'Could not save student.');
+      frontMessage(`✓ ${d.message}`, true);
+      frontSetProgress(`Saved ${d.student.name} (${d.student.student_id}) with ${d.student.sample_count} samples.`);
+      frontActiveStudentId = null;
+      frontSampleCount = 0;
+      frontSetButtons(false);
+      frontStudentName.value = '';
+      await loadStudents();
+    } catch(e) {
+      frontMessage(e.message);
+    }
+  }
+
+  async function frontCancelEnrollment(){
+    if (frontActiveStudentId) {
+      await fetch('/api/students/enrollment/cancel?student_id=' + encodeURIComponent(frontActiveStudentId), {method: 'POST'});
+    }
+    frontActiveStudentId = null;
+    frontSampleCount = 0;
+    frontSetButtons(false);
+    frontSetProgress('Enrollment cancelled.');
+    frontMessage('Enrollment cancelled.', true);
+  }
+
+  // --- Student Tab Step-by-Step Enrollment ---
   async function startEnrollment(){
     message('');
     const payload = {
@@ -1064,36 +1317,121 @@ loadSavedCameras();
     activeStudentId=null; sampleCount=0; setButtons(false); setProgress('Enrollment cancelled.'); message('',true);
   }
 
+  // --- Unified Load Students for both tables ---
   async function loadStudents(){
-    const q=search.value.trim();
-    const r=await fetch('/api/students?query='+encodeURIComponent(q));
-    const d=await r.json();
-    body.innerHTML='';
-    if(!d.students.length){ body.innerHTML='<tr><td colspan="6">No enrolled students.</td></tr>'; return; }
-    d.students.forEach(s=>{
-      const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${escapeHtml(s.student_id)}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.batch)}</td><td>${s.sample_count}</td><td>${(Number(s.quality_score)*100).toFixed(0)}%</td><td><button class="secondary small-btn edit-student">Edit</button> <button class="warning small-btn delete-student">Remove</button></td>`;
-      tr.querySelector('.edit-student').onclick=()=>{
-        studentId.value=s.student_id; studentName.value=s.name; studentBatch.value=s.batch; consentConfirm.checked=true;
-        setProgress('Student loaded for re-enrollment/update. Start enrollment to replace the protected representation.');
-        window.scrollTo({top:document.querySelector('.student-card').offsetTop-20,behavior:'smooth'});
-      };
-      tr.querySelector('.delete-student').onclick=async()=>{
-        if(!confirm('Remove enrollment for '+s.name+'?')) return;
-        const rr=await fetch('/api/students/'+encodeURIComponent(s.student_id),{method:'DELETE'});
-        const dd=await rr.json(); if(!rr.ok){message(dd.detail||'Remove failed.');return;}
-        message(dd.message,true); await loadStudents();
-      };
-      body.appendChild(tr);
-    });
+    const q = search ? search.value.trim() : '';
+    try {
+      const r = await fetch('/api/students?query=' + encodeURIComponent(q));
+      const d = await r.json();
+      const students = d.students || [];
+
+      // Update student count on front page
+      if (frontCount) {
+        frontCount.textContent = `${students.length} student${students.length === 1 ? '' : 's'} enrolled`;
+      }
+
+      // Pre-fill next ID if frontStudentId is empty or default
+      if (frontStudentId && (!frontStudentId.value.trim() || frontStudentId.value.trim() === 'STU-001')) {
+        frontStudentId.value = getNextStudentId(students);
+      }
+      if (studentId && (!studentId.value.trim() || studentId.value.trim() === 'STU-001')) {
+        studentId.value = getNextStudentId(students);
+      }
+
+      // Render Student Tab Table
+      if (body) {
+        body.innerHTML = '';
+        if (!students.length) {
+          body.innerHTML = '<tr><td colspan="6">No enrolled students.</td></tr>';
+        } else {
+          students.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${escapeHtml(s.student_id)}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.batch)}</td><td>${s.sample_count}</td><td>${(Number(s.quality_score)*100).toFixed(0)}%</td><td><button class="secondary small-btn edit-student">Edit</button> <button class="warning small-btn delete-student">Remove</button></td>`;
+            tr.querySelector('.edit-student').onclick = () => {
+              studentId.value = s.student_id;
+              studentName.value = s.name;
+              studentBatch.value = s.batch;
+              consentConfirm.checked = true;
+              setProgress('Student loaded for re-enrollment/update. Start enrollment to replace the protected representation.');
+              window.scrollTo({top: document.querySelector('.student-card').offsetTop - 20, behavior: 'smooth'});
+            };
+            tr.querySelector('.delete-student').onclick = async () => {
+              if (!confirm('Remove enrollment for ' + s.name + '?')) return;
+              const rr = await fetch('/api/students/' + encodeURIComponent(s.student_id), {method: 'DELETE'});
+              const dd = await rr.json();
+              if (!rr.ok) { message(dd.detail || 'Remove failed.'); return; }
+              message(dd.message, true);
+              await loadStudents();
+            };
+            body.appendChild(tr);
+          });
+        }
+      }
+
+      // Render Front-Page Table
+      if (frontBody) {
+        frontBody.innerHTML = '';
+        if (!students.length) {
+          frontBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:14px;color:#66737d;">No enrolled students yet. Enter details above and click \'1-Click Enroll from Camera\'.</td></tr>';
+        } else {
+          students.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><strong>${escapeHtml(s.student_id)}</strong></td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.batch)}</td><td>${s.sample_count}</td><td>${(Number(s.quality_score)*100).toFixed(0)}%</td><td><button class="secondary small-btn front-edit-student">Edit</button> <button class="warning small-btn front-delete-student">Remove</button></td>`;
+            tr.querySelector('.front-edit-student').onclick = () => {
+              frontStudentId.value = s.student_id;
+              frontStudentName.value = s.name;
+              frontStudentBatch.value = s.batch;
+              if (frontConsentConfirm) frontConsentConfirm.checked = true;
+              frontSetProgress('Student loaded for re-enrollment. Click 1-Click Enroll or Start Step-by-Step to update.');
+              frontMessage(`Loaded ${s.name} (${s.student_id}) into form.`, true);
+              const card = document.getElementById('frontQuickAddCard');
+              if (card) window.scrollTo({top: card.offsetTop - 20, behavior: 'smooth'});
+            };
+            tr.querySelector('.front-delete-student').onclick = async () => {
+              if (!confirm('Remove enrollment for ' + s.name + ' (' + s.student_id + ')?')) return;
+              const rr = await fetch('/api/students/' + encodeURIComponent(s.student_id), {method: 'DELETE'});
+              const dd = await rr.json();
+              if (!rr.ok) { frontMessage(dd.detail || 'Remove failed.'); return; }
+              frontMessage(`✓ Removed ${s.name}`, true);
+              await loadStudents();
+            };
+            frontBody.appendChild(tr);
+          });
+        }
+      }
+
+    } catch(err) {
+      console.error('Error loading students:', err);
+    }
   }
 
   function escapeHtml(value){ return String(value).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-  startBtn.onclick=startEnrollment; captureBtn.onclick=captureSample; saveBtn.onclick=saveEnrollment; cancelBtn.onclick=cancelEnrollment;
-  document.getElementById('refreshStudentsBtn').onclick=loadStudents;
-  search.addEventListener('input',()=>{ clearTimeout(window.__studentSearchTimer); window.__studentSearchTimer=setTimeout(loadStudents,250); });
-  setButtons(false); loadStudents();
+  // Wire student tab listeners
+  if (startBtn) startBtn.onclick = startEnrollment;
+  if (captureBtn) captureBtn.onclick = captureSample;
+  if (saveBtn) saveBtn.onclick = saveEnrollment;
+  if (cancelBtn) cancelBtn.onclick = cancelEnrollment;
+  if (refreshBtn) refreshBtn.onclick = loadStudents;
+  if (search) {
+    search.addEventListener('input', () => {
+      clearTimeout(window.__studentSearchTimer);
+      window.__studentSearchTimer = setTimeout(loadStudents, 250);
+    });
+  }
+
+  // Wire front-page quick add listeners
+  if (frontQuickEnrollBtn) frontQuickEnrollBtn.onclick = quickEnrollFromFront;
+  if (frontStartEnrollBtn) frontStartEnrollBtn.onclick = frontStartEnrollment;
+  if (frontCaptureSampleBtn) frontCaptureSampleBtn.onclick = frontCaptureSample;
+  if (frontSaveEnrollBtn) frontSaveEnrollBtn.onclick = frontSaveEnrollment;
+  if (frontCancelEnrollBtn) frontCancelEnrollBtn.onclick = frontCancelEnrollment;
+  if (frontRefreshBtn) frontRefreshBtn.onclick = loadStudents;
+
+  // Initialize buttons and initial student load
+  setButtons(false);
+  frontSetButtons(false);
+  loadStudents();
 })();
 </script>
 <script>
