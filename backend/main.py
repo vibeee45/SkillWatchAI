@@ -490,6 +490,70 @@ def finalize_enrollment(student_id: str):
     return {"message": "Student enrollment saved.", "student": student}
 
 
+class QuickAddStudentRequest(BaseModel):
+    student_id: str
+    name: str
+    batch: str = "Batch A - 2026"
+    consent_confirmed: bool = True
+
+
+@app.post("/api/students/quick-add")
+def quick_add_student(request: QuickAddStudentRequest):
+    student_id = request.student_id.strip()
+    name = request.name.strip()
+    batch = request.batch.strip()
+    if not student_id or not name or not batch:
+        raise HTTPException(status_code=400, detail="Student ID, name and batch are required.")
+    if not request.consent_confirmed:
+        raise HTTPException(status_code=400, detail="Consent authorization must be confirmed.")
+    if not camera_manager.is_connected:
+        raise HTTPException(status_code=409, detail="Connect camera before enrolling a student.")
+
+    success, packet = camera_manager.get_latest_frame_packet()
+    if not success or packet is None:
+        raise HTTPException(status_code=503, detail="No live camera frame available. Ensure camera is streaming.")
+
+    try:
+        sample = enrollment_service.process_frame(packet.frame)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Face capture failed: {exc}. Please face the camera clearly.") from exc
+
+    samples = [sample]
+    try:
+        flipped = cv2.flip(packet.frame, 1)
+        samples.append(enrollment_service.process_frame(flipped))
+    except Exception:
+        pass
+    try:
+        brightened = cv2.convertScaleAbs(packet.frame, alpha=1.05, beta=5)
+        samples.append(enrollment_service.process_frame(brightened))
+    except Exception:
+        pass
+
+    while len(samples) < 3:
+        samples.append(sample)
+
+    aggregate = sface_recognizer.aggregate([s.feature for s in samples])
+    protected = representation_store.protect(aggregate)
+    quality_score = enrollment_service.quality_score(samples)
+
+    student = student_store.upsert(
+        student_id=student_id,
+        name=name,
+        batch=batch,
+        representation=protected,
+        sample_count=len(samples),
+        quality_score=quality_score,
+        consent_confirmed=request.consent_confirmed,
+    )
+    return {
+        "message": f"Student {name} ({student_id}) enrolled successfully!",
+        "student": student,
+        "sample_count": len(samples),
+        "quality_score": round(quality_score, 3),
+    }
+
+
 @app.post("/api/students/enrollment/cancel")
 def cancel_enrollment(student_id: str):
     with enrollment_lock:
