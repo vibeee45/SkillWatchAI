@@ -292,7 +292,7 @@
           </div>
           <div>
             <label for="frontStudentName">Student Name</label>
-            <input id="frontStudentName" placeholder="Demo Student" />
+            <input id="frontStudentName" placeholder="Demo Student" value="Demo Student" />
           </div>
           <div>
             <label for="frontStudentBatch">Batch</label>
@@ -666,22 +666,62 @@
   </main>
 
 <script>
-// Dynamic API Base Resolver for Vercel <-> Render Cloud Deployment
+// Dynamic API Base Resolver for Local Dev, Live Server, and Cloud Deployment
 window.getApiUrl = function(path) {
   if (!path.startsWith('/')) path = '/' + path;
   let backend = '';
   try {
     backend = window.SKILLWATCH_BACKEND_URL || localStorage.getItem('skillwatch_backend_url') || '';
   } catch(_) {}
+  
+  if (!backend) {
+    const loc = window.location;
+    // 1. If running on file:// protocol
+    if (loc.protocol === 'file:') {
+      backend = 'http://127.0.0.1:8000';
+    }
+    // 2. If running on a local development port that is NOT port 8000 (e.g. VS Code Live Server 5500, Vite 5173, etc.)
+    else if ((loc.hostname === 'localhost' || loc.hostname === '127.0.0.1') && loc.port !== '8000') {
+      backend = 'http://127.0.0.1:8000';
+    }
+    // 3. If running on Vercel (*.vercel.app), direct API calls to Render backend to avoid cold-start HTML rewrite fallbacks
+    else if (loc.hostname.includes('vercel.app')) {
+      backend = 'https://skillwatch-backend.onrender.com';
+    }
+  }
   return backend ? backend.replace(/\/+$/, '') + path : path;
 };
 
+// Safe fetch wrapper that intercepts and prevents "Unexpected token '<', <!DOCTYPE... is not valid JSON"
 const _nativeFetch = window.fetch;
-window.fetch = function(resource, init) {
+window.fetch = async function(resource, init) {
   if (typeof resource === 'string' && resource.startsWith('/api/')) {
     resource = window.getApiUrl(resource);
   }
-  return _nativeFetch(resource, init);
+  const response = await _nativeFetch(resource, init);
+
+  // Wrap response.json() so HTML error responses (404, 502, 503) never trigger JSON parse crashes
+  const _origJson = response.json.bind(response);
+  response.json = async function() {
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch (parseErr) {
+      if (text.trim().startsWith('<')) {
+        const status = response.status || 500;
+        if (status === 404) {
+          throw new Error('API endpoint not found (404). Ensure the SkillWatch backend is running on http://127.0.0.1:8000.');
+        } else if (status === 502 || status === 503 || status === 504) {
+          throw new Error(`Cloud backend is waking up (HTTP ${status}). Please wait 10-15 seconds and try again.`);
+        } else {
+          throw new Error(`Server returned HTML (HTTP ${status}) instead of JSON. Ensure the backend server is active.`);
+        }
+      }
+      throw new Error(text || `Invalid response from server (HTTP ${response.status}).`);
+    }
+  };
+
+  return response;
 };
 
 const sourceType = document.getElementById("sourceType");
@@ -1131,20 +1171,26 @@ loadSavedCameras();
   // 1. START ENROLLMENT
   async function frontStartEnrollment(){
     frontMessage('');
-    const payload = {
-      student_id: (frontStudentId.value || '').trim(),
-      name: (frontStudentName.value || '').trim(),
-      batch: (frontStudentBatch.value || '').trim(),
-      consent_confirmed: frontConsentConfirm ? frontConsentConfirm.checked : false
-    };
-    if (!payload.student_id || !payload.name) {
+    const sId = (frontStudentId.value || '').trim() || 'STU-001';
+    const sName = (frontStudentName.value || '').trim() || (frontStudentName.placeholder || '').trim() || 'Demo Student';
+    const sBatch = (frontStudentBatch.value || '').trim() || 'Batch A - 2026';
+    const consent = frontConsentConfirm ? frontConsentConfirm.checked : false;
+
+    if (!sId || !sName) {
       frontMessage('Please enter Student ID and Name.');
       return;
     }
-    if (!payload.consent_confirmed) {
-      frontMessage('Please confirm the consent authorization checkbox.');
+    if (!consent) {
+      frontMessage('Please check the consent authorization box before starting enrollment.');
       return;
     }
+
+    const payload = {
+      student_id: sId,
+      name: sName,
+      batch: sBatch,
+      consent_confirmed: consent
+    };
 
     if (frontActiveStudentId) {
       try {
