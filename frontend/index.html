@@ -281,10 +281,10 @@
           <div>
             <h2 style="margin:0;display:flex;align-items:center;gap:8px;">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
-              Quick Add Student (Camera Face Enrollment)
+              Register Student (Camera Face Enrollment)
             </h2>
             <div style="font-size:13px;color:#66737d;margin-top:4px;">
-              Easily add a new student entry directly using the active camera feed above. Features are protected and recognized live.
+              Register student details, capture face sample from camera, then save and continue.
             </div>
           </div>
           <button class="secondary small-btn" id="frontRefreshStudentsBtn" type="button">Refresh List</button>
@@ -310,17 +310,19 @@
           <span>I confirm this student has authorized face biometric data for this training session prototype.</span>
         </label>
 
-        <div class="student-actions" style="margin-top:14px;">
-          <button class="primary" id="frontQuickEnrollBtn" type="button" style="background:#2563eb;font-weight:600;">
-            ⚡ 1-Click Enroll from Camera
+        <div class="student-actions" style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="primary" id="frontRegisterBtn" type="button" style="background:#2563eb;font-weight:600;min-width:160px;">
+            Register Student
           </button>
-          <button class="secondary" id="frontStartEnrollBtn" type="button">Start Step-by-Step</button>
-          <button class="secondary" id="frontCaptureSampleBtn" type="button" disabled>Capture Sample (0/3)</button>
-          <button class="primary" id="frontSaveEnrollBtn" type="button" disabled>Save Student</button>
-          <button class="secondary" id="frontCancelEnrollBtn" type="button" disabled>Cancel</button>
+          <button class="secondary" id="frontCaptureBtn" type="button" disabled style="min-width:160px;">
+            Capture Sample
+          </button>
+          <button class="primary" id="frontSaveContinueBtn" type="button" disabled style="background:#16a34a;font-weight:600;min-width:160px;">
+            Save and Continue
+          </button>
         </div>
 
-        <div class="student-progress" id="frontEnrollProgress" style="margin-top:12px;">Camera ready. Enter student details above and click '1-Click Enroll from Camera'.</div>
+        <div class="student-progress" id="frontEnrollProgress" style="margin-top:12px;">Camera ready. Enter student details above and click 'Register Student'.</div>
         <div class="student-message" id="frontStudentMessage" style="margin-top:8px;"></div>
 
         <div class="student-list" style="margin-top:16px;">
@@ -1077,16 +1079,14 @@ loadSavedCameras();
   const body = document.getElementById('studentTableBody');
   const refreshBtn = document.getElementById('refreshStudentsBtn');
 
-  // Front-page quick add elements
+  // Front-page 3-button enrollment elements
   const frontStudentId = document.getElementById('frontStudentId');
   const frontStudentName = document.getElementById('frontStudentName');
   const frontStudentBatch = document.getElementById('frontStudentBatch');
   const frontConsentConfirm = document.getElementById('frontConsentConfirm');
-  const frontQuickEnrollBtn = document.getElementById('frontQuickEnrollBtn');
-  const frontStartEnrollBtn = document.getElementById('frontStartEnrollBtn');
-  const frontCaptureSampleBtn = document.getElementById('frontCaptureSampleBtn');
-  const frontSaveEnrollBtn = document.getElementById('frontSaveEnrollBtn');
-  const frontCancelEnrollBtn = document.getElementById('frontCancelEnrollBtn');
+  const frontRegisterBtn = document.getElementById('frontRegisterBtn');
+  const frontCaptureBtn = document.getElementById('frontCaptureBtn');
+  const frontSaveContinueBtn = document.getElementById('frontSaveContinueBtn');
   const frontProgress = document.getElementById('frontEnrollProgress');
   const frontMsg = document.getElementById('frontStudentMessage');
   const frontRefreshBtn = document.getElementById('frontRefreshStudentsBtn');
@@ -1117,15 +1117,24 @@ loadSavedCameras();
   function frontSetProgress(text){
     if (frontProgress) frontProgress.textContent = text;
   }
-  function frontSetButtons(active){
-    if (frontCaptureSampleBtn) {
-      frontCaptureSampleBtn.disabled = !active || frontSampleCount >= 3;
-      frontCaptureSampleBtn.textContent = `Capture Sample (${frontSampleCount}/3)`;
+
+  function frontSetButtons(state){
+    if (!frontRegisterBtn || !frontCaptureBtn || !frontSaveContinueBtn) return;
+    if (state === 'idle') {
+      frontRegisterBtn.disabled = false;
+      frontRegisterBtn.textContent = 'Register Student';
+      frontCaptureBtn.disabled = true;
+      frontCaptureBtn.textContent = 'Capture Sample';
+      frontSaveContinueBtn.disabled = true;
+      frontSaveContinueBtn.textContent = 'Save and Continue';
+    } else if (state === 'registered') {
+      frontRegisterBtn.disabled = true;
+      frontRegisterBtn.textContent = 'Registered';
+      frontCaptureBtn.disabled = frontSampleCount >= 3;
+      frontCaptureBtn.textContent = frontSampleCount > 0 ? `Capture Sample (${frontSampleCount}/3)` : 'Capture Sample';
+      frontSaveContinueBtn.disabled = (frontSampleCount === 0);
+      frontSaveContinueBtn.textContent = 'Save and Continue';
     }
-    if (frontSaveEnrollBtn) frontSaveEnrollBtn.disabled = !active || frontSampleCount < 3;
-    if (frontCancelEnrollBtn) frontCancelEnrollBtn.disabled = !active;
-    if (frontStartEnrollBtn) frontStartEnrollBtn.disabled = active;
-    if (frontQuickEnrollBtn) frontQuickEnrollBtn.disabled = active;
   }
 
   function getNextStudentId(students){
@@ -1140,8 +1149,8 @@ loadSavedCameras();
     return 'STU-' + String(maxId + 1).padStart(3, '0');
   }
 
-  // --- Front Page 1-Click Fast Camera Enrollment ---
-  async function quickEnrollFromFront(){
+  // 1. REGISTER STUDENT
+  async function handleRegisterStudent(){
     frontMessage('');
     const sId = (frontStudentId.value || '').trim();
     const sName = (frontStudentName.value || '').trim();
@@ -1149,7 +1158,7 @@ loadSavedCameras();
     const consent = frontConsentConfirm ? frontConsentConfirm.checked : true;
 
     if (!sId || !sName) {
-      frontMessage('Please enter Student ID and Name before enrolling.');
+      frontMessage('Please enter Student ID and Name.');
       return;
     }
     if (!consent) {
@@ -1157,13 +1166,18 @@ loadSavedCameras();
       return;
     }
 
-    frontQuickEnrollBtn.disabled = true;
-    const originalText = frontQuickEnrollBtn.textContent;
-    frontQuickEnrollBtn.textContent = '⚡ Enrolling from live camera...';
-    frontSetProgress('Capturing face representation directly from active camera...');
+    // Cancel any previous pending session
+    if (frontActiveStudentId) {
+      try {
+        await fetch('/api/students/enrollment/cancel?student_id=' + encodeURIComponent(frontActiveStudentId), {method: 'POST'});
+      } catch (_) {}
+    }
+
+    frontRegisterBtn.disabled = true;
+    frontRegisterBtn.textContent = 'Registering...';
 
     try {
-      const r = await fetch('/api/students/quick-add', {
+      const r = await fetch('/api/students/enrollment/start', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
@@ -1174,97 +1188,74 @@ loadSavedCameras();
         })
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || 'Quick enrollment failed.');
+      if (!r.ok) throw new Error(d.detail || 'Could not register student.');
 
-      frontMessage(`✓ ${d.message} Face recognized live!`, true);
-      frontSetProgress(`Enrolled ${d.student.name} (${d.student.student_id}) with protected feature vectors. Quality: ${(Number(d.quality_score)*100).toFixed(0)}%.`);
-      
-      // Clear name and advance student ID
-      frontStudentName.value = '';
-      await loadStudents();
+      frontActiveStudentId = sId;
+      frontSampleCount = 0;
+      frontSetButtons('registered');
+      frontSetProgress(`Student ${sName} registered! Look at the camera and click 'Capture Sample'.`);
+      frontMessage(`✓ ${sName} registered. Ready to capture face sample.`, true);
     } catch(e) {
-      frontMessage(e.message || 'Enrollment error. Ensure camera is connected and face is clearly visible.');
-      frontSetProgress('Enrollment failed: ' + (e.message || 'Check camera stream.'));
-    } finally {
-      frontQuickEnrollBtn.disabled = false;
-      frontQuickEnrollBtn.textContent = originalText;
+      frontSetButtons('idle');
+      frontMessage(e.message || 'Registration failed. Check camera connection.');
     }
   }
 
-  // --- Front Page Step-by-Step Enrollment ---
-  async function frontStartEnrollment(){
-    frontMessage('');
-    const payload = {
-      student_id: (frontStudentId.value || '').trim(),
-      name: (frontStudentName.value || '').trim(),
-      batch: (frontStudentBatch.value || '').trim(),
-      consent_confirmed: frontConsentConfirm.checked
-    };
-    if (!payload.student_id || !payload.name) {
-      frontMessage('Please provide Student ID and Name.');
+  // 2. CAPTURE SAMPLE
+  async function handleCaptureSample(){
+    if (!frontActiveStudentId) {
+      frontMessage('Click "Register Student" first.');
       return;
     }
-    try{
-      const r = await fetch('/api/students/enrollment/start', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || 'Could not start enrollment.');
-      frontActiveStudentId = payload.student_id;
-      frontSampleCount = 0;
-      frontSetProgress('Enrollment started. Keep your face centered in camera and capture 3 valid samples.');
-      frontMessage(d.message, true);
-      frontSetButtons(true);
-    } catch(e){
-      frontMessage(e.message);
-    }
-  }
-
-  async function frontCaptureSample(){
-    if (!frontActiveStudentId) return;
     frontMessage('');
+    frontCaptureBtn.disabled = true;
+    frontCaptureBtn.textContent = 'Capturing...';
+
     try {
       const r = await fetch('/api/students/enrollment/capture?student_id=' + encodeURIComponent(frontActiveStudentId), {method: 'POST'});
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || 'Sample capture failed.');
+
       frontSampleCount = d.sample_count;
-      frontSetProgress(`Valid samples: ${frontSampleCount}/3 · confidence ${d.quality.confidence} · brightness ${d.quality.brightness} · blur ${d.quality.blur_score}`);
-      frontMessage(d.message, true);
-      frontSetButtons(true);
+      frontSetButtons('registered');
+      const conf = d.quality ? Math.round((d.quality.confidence || 0) * 100) : 100;
+      frontSetProgress(`Valid sample ${frontSampleCount}/3 captured (quality: ${conf}%). Click 'Save and Continue' to finish.`);
+      frontMessage(`✓ Sample ${frontSampleCount}/3 captured! Click 'Save and Continue' to save or capture another sample.`, true);
     } catch(e) {
-      frontMessage(e.message);
+      frontSetButtons('registered');
+      frontMessage(e.message || 'Face capture failed. Make sure your face is clearly visible in the camera.', false);
     }
   }
 
-  async function frontSaveEnrollment(){
-    if (!frontActiveStudentId) return;
+  // 3. SAVE AND CONTINUE
+  async function handleSaveAndContinue(){
+    if (!frontActiveStudentId) {
+      frontMessage('Please register student and capture a sample first.');
+      return;
+    }
+    frontMessage('');
+    frontSaveContinueBtn.disabled = true;
+    frontSaveContinueBtn.textContent = 'Saving...';
+
     try {
       const r = await fetch('/api/students/enrollment/finalize?student_id=' + encodeURIComponent(frontActiveStudentId), {method: 'POST'});
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || 'Could not save student.');
-      frontMessage(`✓ ${d.message}`, true);
-      frontSetProgress(`Saved ${d.student.name} (${d.student.student_id}) with ${d.student.sample_count} samples.`);
+
+      frontMessage(`✓ Student ${d.student.name} (${d.student.student_id}) saved successfully! Face is recognized live.`, true);
+      frontSetProgress(`Saved ${d.student.name}. Ready to continue with next student.`);
+
+      // Reset form and continue with next student
       frontActiveStudentId = null;
       frontSampleCount = 0;
-      frontSetButtons(false);
       frontStudentName.value = '';
+      frontSetButtons('idle');
       await loadStudents();
     } catch(e) {
-      frontMessage(e.message);
+      frontSaveContinueBtn.disabled = false;
+      frontSaveContinueBtn.textContent = 'Save and Continue';
+      frontMessage(e.message || 'Could not save student.', false);
     }
-  }
-
-  async function frontCancelEnrollment(){
-    if (frontActiveStudentId) {
-      await fetch('/api/students/enrollment/cancel?student_id=' + encodeURIComponent(frontActiveStudentId), {method: 'POST'});
-    }
-    frontActiveStudentId = null;
-    frontSampleCount = 0;
-    frontSetButtons(false);
-    frontSetProgress('Enrollment cancelled.');
-    frontMessage('Enrollment cancelled.', true);
   }
 
   // --- Student Tab Step-by-Step Enrollment ---
@@ -1372,7 +1363,7 @@ loadSavedCameras();
       if (frontBody) {
         frontBody.innerHTML = '';
         if (!students.length) {
-          frontBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:14px;color:#66737d;">No enrolled students yet. Enter details above and click \'1-Click Enroll from Camera\'.</td></tr>';
+          frontBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:14px;color:#66737d;">No enrolled students yet. Enter details above and click \'Register Student\'.</td></tr>';
         } else {
           students.forEach(s => {
             const tr = document.createElement('tr');
@@ -1382,8 +1373,9 @@ loadSavedCameras();
               frontStudentName.value = s.name;
               frontStudentBatch.value = s.batch;
               if (frontConsentConfirm) frontConsentConfirm.checked = true;
-              frontSetProgress('Student loaded for re-enrollment. Click 1-Click Enroll or Start Step-by-Step to update.');
+              frontSetProgress('Student loaded for update. Click Register Student then Capture Sample.');
               frontMessage(`Loaded ${s.name} (${s.student_id}) into form.`, true);
+              frontSetButtons('idle');
               const card = document.getElementById('frontQuickAddCard');
               if (card) window.scrollTo({top: card.offsetTop - 20, behavior: 'smooth'});
             };
@@ -1420,17 +1412,15 @@ loadSavedCameras();
     });
   }
 
-  // Wire front-page quick add listeners
-  if (frontQuickEnrollBtn) frontQuickEnrollBtn.onclick = quickEnrollFromFront;
-  if (frontStartEnrollBtn) frontStartEnrollBtn.onclick = frontStartEnrollment;
-  if (frontCaptureSampleBtn) frontCaptureSampleBtn.onclick = frontCaptureSample;
-  if (frontSaveEnrollBtn) frontSaveEnrollBtn.onclick = frontSaveEnrollment;
-  if (frontCancelEnrollBtn) frontCancelEnrollBtn.onclick = frontCancelEnrollment;
+  // Wire front-page 3-button listeners
+  if (frontRegisterBtn) frontRegisterBtn.onclick = handleRegisterStudent;
+  if (frontCaptureBtn) frontCaptureBtn.onclick = handleCaptureSample;
+  if (frontSaveContinueBtn) frontSaveContinueBtn.onclick = handleSaveAndContinue;
   if (frontRefreshBtn) frontRefreshBtn.onclick = loadStudents;
 
   // Initialize buttons and initial student load
   setButtons(false);
-  frontSetButtons(false);
+  frontSetButtons('idle');
   loadStudents();
 })();
 </script>
