@@ -791,8 +791,12 @@ function setStatus(status) {
   document.getElementById("sourceLabel").textContent = `Source: ${status.source_type || (isBrowserActive ? "local" : "—")}`;
   document.getElementById("roomLabel").textContent = `Room: ${status.room || "—"}`;
   document.getElementById("healthLabel").textContent = `Health: ${status.health || (isBrowserActive ? "healthy" : "—")}`;
-  document.getElementById("lastFrame").textContent = `Last frame: ${status.last_frame_at ? new Date(status.last_frame_at).toLocaleTimeString() : "—"}`;
-  document.getElementById("frameAgeLabel").textContent = `Frame age: ${status.frame_age_seconds == null ? "—" : `${Number(status.frame_age_seconds).toFixed(1)}s`}`;
+  document.getElementById("lastFrame").textContent = `Last frame: ${status.last_frame_at ? new Date(status.last_frame_at).toLocaleTimeString() : (isBrowserActive ? new Date().toLocaleTimeString() : "—")}`;
+  if (!isBrowserActive) {
+    document.getElementById("frameAgeLabel").textContent = `Frame age: ${status.frame_age_seconds == null ? "—" : `${Number(status.frame_age_seconds).toFixed(1)}s`}`;
+  } else {
+    document.getElementById("frameAgeLabel").textContent = `Frame age: 0.0s (Live)`;
+  }
   const quality = status.frame_quality || {};
   document.getElementById("qualityLabel").textContent = `Image quality: ${quality.state || "—"}${quality.sharpness == null ? "" : ` (sharpness ${quality.sharpness})`}`;
   document.getElementById("reconnectLabel").textContent = `Reconnects: ${status.reconnect_attempts || 0}`;
@@ -802,6 +806,8 @@ let browserMediaStream = null;
 let browserVideoEl = null;
 let browserCanvas = null;
 let browserInterval = null;
+let browserStreaming = false;
+let browserTimeoutId = null;
 
 async function connectCamera() {
   clearMessage();
@@ -832,7 +838,12 @@ async function connectCamera() {
         browserCanvas.height = 360;
       }
       const ctx = browserCanvas.getContext("2d");
-      if (browserInterval) clearInterval(browserInterval);
+      browserStreaming = true;
+      browserInterval = true;
+      if (browserTimeoutId) {
+        clearTimeout(browserTimeoutId);
+        browserTimeoutId = null;
+      }
 
       // Immediately mark UI as connected so user gets instant visual confirmation
       setStatus({ connected: true, source_type: "local", room: room, camera_id: cameraId, fps: 20 });
@@ -846,23 +857,40 @@ async function connectCamera() {
         body: JSON.stringify({ source_type: "local", camera_id: cameraId, room: room })
       }).catch(() => {});
 
-      let inFlight = false;
       let frameCounter = 0;
       let lastFpsTime = performance.now();
 
-      browserInterval = setInterval(() => {
-        if (!browserVideoEl || browserVideoEl.readyState < 2 || inFlight) return;
-        ctx.drawImage(browserVideoEl, 0, 0, 640, 360);
-        browserCanvas.toBlob(async (blob) => {
-          if (!blob) return;
-          inFlight = true;
+      async function streamLoop() {
+        if (!browserStreaming || !browserMediaStream || !browserMediaStream.active) return;
+
+        if (!browserVideoEl || browserVideoEl.readyState < 2) {
+          browserTimeoutId = setTimeout(streamLoop, 50);
+          return;
+        }
+
+        try {
+          ctx.drawImage(browserVideoEl, 0, 0, 640, 360);
+          const blob = await new Promise((resolve) => browserCanvas.toBlob(resolve, "image/jpeg", 0.65));
+          if (!blob || !browserStreaming) return;
+
           const fd = new FormData();
           fd.append("frame", blob, "frame.jpg");
+
+          // Hard abort signal so no network stall can ever freeze the stream (max 3500ms timeout)
+          const controller = new AbortController();
+          const abortTimer = setTimeout(() => controller.abort(), 3500);
+
           try {
-            const res = await fetch("/api/camera/browser-frame", { method: "POST", body: fd });
+            const res = await fetch("/api/camera/browser-frame", {
+              method: "POST",
+              body: fd,
+              signal: controller.signal
+            });
+            clearTimeout(abortTimer);
+
             if (res.ok) {
               const resData = await res.json();
-              if (resData.annotated_image) {
+              if (resData.annotated_image && browserStreaming) {
                 stream.src = resData.annotated_image;
                 stream.style.display = "block";
                 placeholder.style.display = "none";
@@ -887,15 +915,20 @@ async function connectCamera() {
                 lastFpsTime = now;
               }
             }
-          } catch (_) {
-            // Drop transient network hiccups and continue immediately on next frame
+          } finally {
+            clearTimeout(abortTimer);
           }
-          finally {
-            inFlight = false;
-          }
-        }, "image/jpeg", 0.65);
-      }, 50);
+        } catch (_) {
+          // Drop transient frame timeout or network glitch and proceed immediately to next frame
+        }
 
+        // Schedule next frame ONLY after the previous frame has completely finished
+        if (browserStreaming) {
+          browserTimeoutId = setTimeout(streamLoop, 25);
+        }
+      }
+
+      streamLoop();
       return;
     } else if (type === "upload") {
       const fileInput = document.getElementById("videoFile");
@@ -953,9 +986,11 @@ async function connectCamera() {
 async function disconnectCamera() {
   clearMessage();
 
-  if (browserInterval) {
-    clearInterval(browserInterval);
-    browserInterval = null;
+  browserStreaming = false;
+  browserInterval = null;
+  if (browserTimeoutId) {
+    clearTimeout(browserTimeoutId);
+    browserTimeoutId = null;
   }
   if (browserMediaStream) {
     browserMediaStream.getTracks().forEach(t => t.stop());
@@ -1619,9 +1654,13 @@ loadSavedCameras();
       }
       const elFps = document.getElementById('kpiCameraFps');
       if (elFps) {
-        const fps = Number(cam.actual_fps || cam.fps || 0).toFixed(1);
-        const age = cam.frame_age_seconds != null ? `${Number(cam.frame_age_seconds).toFixed(1)}s` : '—';
-        elFps.textContent = `FPS: ${fps} · Frame age: ${age}`;
+        if (browserMediaStream && browserMediaStream.active && browserStreaming) {
+          // Keep live client-measured streaming indicator
+        } else {
+          const fps = Number(cam.actual_fps || cam.fps || 0).toFixed(1);
+          const age = cam.frame_age_seconds != null ? `${Number(cam.frame_age_seconds).toFixed(1)}s` : '—';
+          elFps.textContent = `FPS: ${fps} · Frame age: ${age}`;
+        }
       }
 
       // Occupancy

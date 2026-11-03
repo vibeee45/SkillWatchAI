@@ -730,7 +730,7 @@ def connect_camera(request: CameraConnectRequest):
 
 
 @app.post("/api/camera/browser-frame")
-async def receive_browser_frame(frame: UploadFile = File(...)):
+def receive_browser_frame(frame: UploadFile = File(...)):
     # Auto-heal: Ensure camera connection is active whenever the browser is uploading frames
     if not camera_manager.is_connected or camera_manager.source_type not in ("browser", "local"):
         camera_manager.connect_browser_stream(
@@ -738,7 +738,7 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
             camera_manager.room or "Training Room 01",
             source_type="local"
         )
-    data = await frame.read()
+    data = frame.file.read()
     nparr = np.frombuffer(data, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
@@ -809,7 +809,7 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
                 logging.getLogger("skillwatch.infrastructure").warning("Async YOLO detection error: %s", exc)
         yolo_future = yolo_executor.submit(infrastructure_detector.detect, img.copy())
 
-    all_yolo_detections = infrastructure_detector.last_detections
+    all_yolo_detections = list(infrastructure_detector.last_detections)
 
     from detection.person_detector import PersonDetection
     person_detections = [
