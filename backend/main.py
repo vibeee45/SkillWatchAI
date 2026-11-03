@@ -109,9 +109,17 @@ person_detector = LightweightPersonDetector(
     ),
 )
 occupancy_service = OccupancyService(history_size=int(os.getenv("SKILLWATCH_OCCUPANCY_SMOOTHING_FRAMES", "5")))
+_infra_conf_raw = os.getenv("SKILLWATCH_INFRA_CONFIDENCE")
+try:
+    _infra_conf = float(_infra_conf_raw) if _infra_conf_raw else 0.15
+except (ValueError, TypeError):
+    _infra_conf = 0.15
+if _infra_conf > 0.25:
+    _infra_conf = 0.15
+
 infrastructure_detector = InfrastructureDetector(
     BASE_DIR / "models" / "yolov8n.onnx",
-    confidence_threshold=float(os.getenv("SKILLWATCH_INFRA_CONFIDENCE", "0.15")),
+    confidence_threshold=_infra_conf,
     nms_threshold=float(os.getenv("SKILLWATCH_INFRA_NMS", "0.45")),
 )
 infrastructure_observations = InfrastructureObservationService()
@@ -789,7 +797,7 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
     equipment_detections = []
     infra_data = {}
     try:
-        if camera_manager.frame_count % 3 == 0 or not infrastructure_detector.last_detections:
+        if camera_manager.frame_count % 2 == 0 or not infrastructure_detector.last_detections:
             equipment_detections = infrastructure_detector.detect(img)
         else:
             equipment_detections = infrastructure_detector.last_detections
@@ -1011,6 +1019,16 @@ def _annotate_infrastructure_detections(frame, ai_result):
         label = f"{detection.get('class_name', 'equipment')} {float(detection.get('confidence', 0)):.2f}"
         cv2.rectangle(output, (x, y), (x2, y2), (0, 200, 255), 2)
         cv2.putText(output, label, (x, max(16, y - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 255), 1, cv2.LINE_AA)
+
+    # Top-right live Equipment HUD counter
+    counts = infrastructure.get("counts_by_class") or infrastructure.get("current_counts") or {}
+    summary_label = f"Equipment: {len(detections)}"
+    if counts:
+        items_str = ", ".join(f"{k}:{v}" for k, v in counts.items())
+        summary_label = f"Equipment: {len(detections)} ({items_str})"
+    text_size, _ = cv2.getTextSize(summary_label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+    tx = max(10, w - text_size[0] - 10)
+    cv2.putText(output, summary_label, (tx, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 200, 255), 2, cv2.LINE_AA)
     return output
 
 
@@ -1041,6 +1059,24 @@ def _annotate_person_detections(frame, ai_result):
         cv2.LINE_AA,
     )
     return output
+
+
+class InfrastructureConfigRequest(BaseModel):
+    confidence_threshold: float | None = None
+    nms_threshold: float | None = None
+
+
+@app.put("/api/infrastructure/config")
+def infrastructure_config_update(request: InfrastructureConfigRequest):
+    if request.confidence_threshold is not None:
+        infrastructure_detector.confidence_threshold = max(0.05, min(0.95, float(request.confidence_threshold)))
+    if request.nms_threshold is not None:
+        infrastructure_detector.nms_threshold = max(0.1, min(0.95, float(request.nms_threshold)))
+    return {
+        "message": "Infrastructure detector configuration updated.",
+        "confidence_threshold": infrastructure_detector.confidence_threshold,
+        "nms_threshold": infrastructure_detector.nms_threshold,
+    }
 
 
 @app.get("/api/infrastructure/status")
