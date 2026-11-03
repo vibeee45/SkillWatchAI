@@ -16,12 +16,18 @@ except ImportError:  # OpenCV fallback keeps existing installations runnable.
 
 COCO_EQUIPMENT_CLASSES: dict[int, str] = {
     13: "bench",       # Classroom benches / benches
+    24: "backpack",    # Student bags / backpacks
+    39: "bottle",      # Water bottles
     56: "chair",       # Chairs
     57: "couch",       # Lounge chairs / seating
+    59: "bed",         # Beds / cots
     60: "table",       # Dining tables / classroom desks
     62: "tv_monitor",  # TVs / computer monitors / projector screens
     63: "laptop",      # Laptops / notebooks
+    64: "mouse",       # Computer mouse
     66: "keyboard",    # Keyboards
+    67: "cell_phone",  # Mobile phones / devices
+    73: "book",        # Books / textbooks
 }
 
 

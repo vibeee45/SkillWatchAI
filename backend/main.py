@@ -785,13 +785,31 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
                         event_id=f"attendance:{active_session['id']}:{d['student_id']}",
                     )
 
+    # 2b. Infrastructure equipment detection (cadence execution for high streaming FPS)
+    equipment_detections = []
+    infra_data = {}
+    try:
+        if camera_manager.frame_count % 3 == 0 or not infrastructure_detector.last_detections:
+            equipment_detections = infrastructure_detector.detect(img)
+        else:
+            equipment_detections = infrastructure_detector.last_detections
+        infra_data = infrastructure_observations.process(
+            equipment_detections,
+            img.shape[1],
+            img.shape[0],
+        )
+        infra_data["detector"] = infrastructure_detector.status()
+    except Exception as infra_exc:
+        logging.getLogger("skillwatch.infrastructure").warning("Infrastructure detection error: %s", infra_exc)
+        infra_data = infrastructure_observations.status()
+
     # 4. Construct AI result for annotations
     ai_result = {
         "processor": "face_detection",
         "detections": [d.as_dict() for d in face_detections],
         "recognition": recognition_dicts,
         "occupancy": occupancy_data,
-        "infrastructure": infrastructure_observations.status(),
+        "infrastructure": infra_data,
     }
     frame_pipeline.last_ai_result = ai_result
 
@@ -816,6 +834,7 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
             "recognized": occupancy_data.get("recognized_students", 0),
             "unknown": occupancy_data.get("unknown_persons", 0),
         },
+        "infrastructure": infra_data,
     }
 
 
@@ -975,14 +994,18 @@ def _annotate_infrastructure_detections(frame, ai_result):
     output = frame.copy()
     h, w = output.shape[:2]
     tw, th = frame_pipeline.target_width, frame_pipeline.target_height
-    scale = min(tw / max(w, 1), th / max(h, 1))
-    nw, nh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
-    pad_x, pad_y = (tw - nw) // 2, (th - nh) // 2
+    if w == tw and h == th:
+        scale, pad_x, pad_y = 1.0, 0, 0
+    else:
+        scale = min(tw / max(w, 1), th / max(h, 1))
+        nw, nh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
+        pad_x, pad_y = (tw - nw) // 2, (th - nh) // 2
     for detection in detections:
         x, y, bw, bh = detection.get("bbox", [0, 0, 0, 0])
-        x = int(round((x - pad_x) / scale))
-        y = int(round((y - pad_y) / scale))
-        bw, bh = int(round(bw / scale)), int(round(bh / scale))
+        if scale != 1.0 or pad_x != 0 or pad_y != 0:
+            x = int(round((x - pad_x) / scale))
+            y = int(round((y - pad_y) / scale))
+            bw, bh = int(round(bw / scale)), int(round(bh / scale))
         x = max(0, min(w - 1, x)); y = max(0, min(h - 1, y))
         x2 = max(x + 1, min(w - 1, x + bw)); y2 = max(y + 1, min(h - 1, y + bh))
         label = f"{detection.get('class_name', 'equipment')} {float(detection.get('confidence', 0)):.2f}"

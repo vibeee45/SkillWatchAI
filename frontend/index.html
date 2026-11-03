@@ -856,6 +856,9 @@ async function connectCamera() {
               if (window.renderLiveOccupancy && resData.occupancy) {
                 window.renderLiveOccupancy(resData.occupancy);
               }
+              if (window.renderLiveInfrastructure && resData.infrastructure) {
+                window.renderLiveInfrastructure(resData.infrastructure);
+              }
               frameCounter++;
               const now = performance.now();
               if (now - lastFpsTime >= 1000) {
@@ -1628,7 +1631,7 @@ loadSavedCameras();
 
       // Infrastructure Assets
       const infra = data.infrastructure || {};
-      const counts = infra.detected_counts || {};
+      const counts = infra.detected_counts || infra.current_counts || infra.counts_by_class || {};
       const totalAssets = Object.values(counts).reduce((a, b) => a + Number(b), 0);
       const elAssets = document.getElementById('kpiAssets');
       if (elAssets) elAssets.textContent = totalAssets;
@@ -1670,45 +1673,67 @@ loadSavedCameras();
   }
 
   function renderInfrastructure(data) {
-    const counts = data.current_counts || data.counts_by_class || {};
+    if (!data) return;
+    const obs = data.observation || data;
+    const detector = data.detector || obs.detector || {};
+    const counts = obs.current_counts || obs.counts_by_class || data.counts_by_class || {};
     const chairs = (counts.chair || 0) + (counts.bench || 0) + (counts.couch || 0);
     const tables = (counts.table || 0) + (counts.dining_table || 0);
     const laptops = (counts.laptop || 0);
     const monitors = (counts.tv_monitor || 0) + (counts.tv || 0);
-    $('infraChairs').textContent = chairs;
-    $('infraTables').textContent = tables;
-    $('infraLaptops').textContent = laptops;
-    $('infraMonitors').textContent = monitors;
+    if ($('infraChairs')) $('infraChairs').textContent = chairs;
+    if ($('infraTables')) $('infraTables').textContent = tables;
+    if ($('infraLaptops')) $('infraLaptops').textContent = laptops;
+    if ($('infraMonitors')) $('infraMonitors').textContent = monitors;
 
-    const state = data.detection_state || 'IDLE';
-    $('infraState').textContent = state;
-    $('infraState').style.color = state === 'SUCCESS' ? '#18a558' : '#b42318';
-
-    const detector = data.detector || {};
-    $('infraLatency').textContent = `${Number(detector.last_inference_ms || 0).toFixed(1)} ms`;
-
-    $('infraStatusBox').innerHTML = `<strong>YOLOv8n ONNX Infrastructure Detector</strong> · engine ${esc(detector.engine || 'onnxruntime')} · state: ${esc(state)} · valid: ${data.detection_valid ? 'yes' : 'no'} · inference count: ${detector.inference_count || 0}`;
-
-    const detections = detector.last_detections || [];
-    const tbody = $('infraTableBody');
-    if (!detections.length) {
-      tbody.innerHTML = '<tr><td colspan="4">No equipment detected in current frame.</td></tr>';
-    } else {
-      tbody.innerHTML = detections.map(d => {
-        const box = d.bbox ? `[${d.bbox.join(', ')}]` : '—';
-        return `<tr>
-          <td><strong>${esc(d.class_name)}</strong></td>
-          <td>${(Number(d.confidence || 0) * 100).toFixed(1)}%</td>
-          <td><code>${esc(box)}</code></td>
-          <td>${esc(d.zone_id || 'all')}</td>
-        </tr>`;
-      }).join('');
+    const state = obs.detection_state || data.detection_state || 'IDLE';
+    if ($('infraState')) {
+      $('infraState').textContent = state;
+      $('infraState').style.color = state === 'SUCCESS' ? '#18a558' : '#b42318';
     }
 
-    if (Array.isArray(data.zones)) {
-      $('infraZones').value = JSON.stringify(data.zones);
+    if ($('infraLatency')) {
+      $('infraLatency').textContent = `${Number(detector.last_inference_ms || 0).toFixed(1)} ms`;
+    }
+
+    if ($('infraStatusBox')) {
+      $('infraStatusBox').innerHTML = `<strong>YOLOv8n ONNX Infrastructure Detector</strong> · engine ${esc(detector.engine || 'onnxruntime')} · state: ${esc(state)} · valid: ${obs.detection_valid ? 'yes' : 'no'} · inference count: ${detector.inference_count || 0}`;
+    }
+
+    const detections = (detector.last_detections && detector.last_detections.length) ? detector.last_detections : (obs.detections || data.detections || []);
+    const tbody = $('infraTableBody');
+    if (tbody) {
+      if (!detections.length) {
+        tbody.innerHTML = '<tr><td colspan="4">No equipment detected in current frame.</td></tr>';
+      } else {
+        tbody.innerHTML = detections.map(d => {
+          const box = d.bbox ? `[${d.bbox.join(', ')}]` : '—';
+          return `<tr>
+            <td><strong>${esc(d.class_name)}</strong></td>
+            <td>${(Number(d.confidence || 0) * 100).toFixed(1)}%</td>
+            <td><code>${esc(box)}</code></td>
+            <td>${esc(d.zone_id || 'all')}</td>
+          </tr>`;
+        }).join('');
+      }
+    }
+
+    // Keep dashboard KPI assets card updated in real time
+    const totalAssets = Object.values(counts).reduce((a, b) => a + Number(b), 0);
+    const elAssets = document.getElementById('kpiAssets');
+    if (elAssets) elAssets.textContent = totalAssets;
+    const elAssetsSub = document.getElementById('kpiAssetsSub');
+    if (elAssetsSub) {
+      const parts = Object.entries(counts).map(([k, v]) => `${k}: ${v}`);
+      elAssetsSub.textContent = parts.length ? parts.join(', ') : 'no items detected';
+    }
+
+    if (Array.isArray(obs.zones) && $('infraZones')) {
+      $('infraZones').value = JSON.stringify(obs.zones);
     }
   }
+
+  window.renderLiveInfrastructure = renderInfrastructure;
 
   async function refreshInfra() {
     try {
