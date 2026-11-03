@@ -177,6 +177,9 @@ recognition_service = FaceRecognitionService(
 enrollment_sessions: dict[str, dict] = {}
 enrollment_lock = threading.Lock()
 cached_recognition_by_track: dict[int, dict] = {}
+import concurrent.futures
+yolo_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="skillwatch_yolo")
+yolo_future: concurrent.futures.Future | None = None
 
 
 class AttendanceSessionRequest(BaseModel):
@@ -752,7 +755,7 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
     # High-FPS Face Recognition Cadence:
     # Run full SFace deep embedding if:
     # - New untracked face appears
-    # - Or candidate face is still confirming
+    # - Or candidate/unknown face is in initial evaluation (< 3 frames)
     # - Or periodic cadence check every 4 frames
     need_recognition = False
     if not face_detections:
@@ -760,9 +763,18 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
     else:
         for f in face_detections:
             cached = cached_recognition_by_track.get(f.track_id)
-            if cached is None or cached.get("status") != "confirmed" or camera_manager.frame_count % 4 == 0:
+            if cached is None:
                 need_recognition = True
                 break
+            if cached.get("status") == "confirmed":
+                if camera_manager.frame_count % 4 == 0:
+                    need_recognition = True
+                    break
+            else:
+                eval_count = cached.get("_eval_count", 0)
+                if eval_count < 3 or camera_manager.frame_count % 4 == 0:
+                    need_recognition = True
+                    break
 
     if need_recognition:
         try:
@@ -776,6 +788,8 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
             for r in recognition_results:
                 d = r.as_dict()
                 if d.get("track_id") is not None:
+                    prev = cached_recognition_by_track.get(d["track_id"], {})
+                    d["_eval_count"] = prev.get("_eval_count", 0) + 1
                     cached_recognition_by_track[d["track_id"]] = d
         except Exception as exc:
             logging.getLogger("skillwatch.recognition").warning("Recognition error: %s", exc)
@@ -785,16 +799,17 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
         for f in face_detections
     ]
 
-    # 2. Unified person & infrastructure detection (single YOLOv8n ONNX pass on cadence)
-    all_yolo_detections = []
-    if camera_manager.frame_count % 3 == 0 or not infrastructure_detector.last_detections:
-        try:
-            all_yolo_detections = infrastructure_detector.detect(img)
-        except Exception as exc:
-            logging.getLogger("skillwatch.infrastructure").warning("YOLO detection error: %s", exc)
-            all_yolo_detections = infrastructure_detector.last_detections
-    else:
-        all_yolo_detections = infrastructure_detector.last_detections
+    # 2. Unified person & infrastructure detection (asynchronous background YOLOv8n ONNX pass)
+    global yolo_future
+    if yolo_future is None or yolo_future.done():
+        if yolo_future is not None and yolo_future.done():
+            try:
+                yolo_future.result()
+            except Exception as exc:
+                logging.getLogger("skillwatch.infrastructure").warning("Async YOLO detection error: %s", exc)
+        yolo_future = yolo_executor.submit(infrastructure_detector.detect, img.copy())
+
+    all_yolo_detections = infrastructure_detector.last_detections
 
     from detection.person_detector import PersonDetection
     person_detections = [
@@ -1449,7 +1464,10 @@ def frame_generator():
                     ai_frame.frame.shape[0],
                 )
                 try:
-                    equipment_detections = infrastructure_detector.detect(ai_frame.frame)
+                    if packet.frame_number % 4 == 0 or not infrastructure_detector.last_detections:
+                        equipment_detections = infrastructure_detector.detect(ai_frame.frame)
+                    else:
+                        equipment_detections = infrastructure_detector.last_detections
                     ai_result["infrastructure"] = infrastructure_observations.process(
                         equipment_detections,
                         ai_frame.frame.shape[1],

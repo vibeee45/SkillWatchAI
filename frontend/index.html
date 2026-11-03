@@ -701,7 +701,16 @@ window.fetch = async function(resource, init) {
   if (typeof resource === 'string' && resource.startsWith('/api/')) {
     resource = window.getApiUrl(resource);
   }
-  const response = await _nativeFetch(resource, init);
+  let response;
+  try {
+    response = await _nativeFetch(resource, init);
+  } catch (netErr) {
+    const isVercel = window.location.hostname.includes('vercel.app');
+    const msg = isVercel
+      ? 'SkillWatch cloud backend (Render) is waking up. Please wait 10-15 seconds and try again.'
+      : 'SkillWatch backend server is unreachable. Please ensure the backend is running on http://127.0.0.1:8000.';
+    throw new Error(msg);
+  }
 
   // Wrap response.json() so HTML error responses (404, 502, 503) never trigger JSON parse crashes
   const _origJson = response.json.bind(response);
@@ -748,10 +757,9 @@ sourceType.addEventListener("change", () => {
 function clearMessage() { message.textContent = ""; }
 
 function setStatus(status) {
-  const connected = !!status.connected;
-  if (!connected && sourceType.value === "local" && browserMediaStream && browserMediaStream.active) {
-    return; // Active browser camera stream: do not falsely disconnect UI from background status polls
-  }
+  const isBrowserActive = (browserInterval !== null && browserMediaStream && browserMediaStream.active);
+  const connected = isBrowserActive || !!status.connected;
+
   statusDot.classList.toggle("connected", connected);
   statusText.textContent = connected ? "Connected" : "Disconnected";
   headerStatus.textContent = connected ? "● Connected" : "Disconnected";
@@ -776,11 +784,13 @@ function setStatus(status) {
     stream.style.display = "none";
     placeholder.style.display = "block";
   }
-  document.getElementById("resolution").textContent = connected ? `Resolution: ${status.width || 0} × ${status.height || 0}` : "Resolution: —";
-  document.getElementById("fps").textContent = connected ? `FPS: ${Number(status.actual_fps || status.fps || 0).toFixed(1)}` : "FPS: —";
-  document.getElementById("sourceLabel").textContent = `Source: ${status.source_type || "—"}`;
+  document.getElementById("resolution").textContent = connected ? `Resolution: ${status.width || 640} × ${status.height || 360}` : "Resolution: —";
+  if (!isBrowserActive) {
+    document.getElementById("fps").textContent = connected ? `FPS: ${Number(status.actual_fps || status.fps || 0).toFixed(1)}` : "FPS: —";
+  }
+  document.getElementById("sourceLabel").textContent = `Source: ${status.source_type || (isBrowserActive ? "local" : "—")}`;
   document.getElementById("roomLabel").textContent = `Room: ${status.room || "—"}`;
-  document.getElementById("healthLabel").textContent = `Health: ${status.health || "—"}`;
+  document.getElementById("healthLabel").textContent = `Health: ${status.health || (isBrowserActive ? "healthy" : "—")}`;
   document.getElementById("lastFrame").textContent = `Last frame: ${status.last_frame_at ? new Date(status.last_frame_at).toLocaleTimeString() : "—"}`;
   document.getElementById("frameAgeLabel").textContent = `Frame age: ${status.frame_age_seconds == null ? "—" : `${Number(status.frame_age_seconds).toFixed(1)}s`}`;
   const quality = status.frame_quality || {};
@@ -804,7 +814,7 @@ async function connectCamera() {
     let response;
 
     if (type === "local") {
-      message.textContent = "Requesting device camera access...";
+      message.textContent = "Starting device camera...";
       browserMediaStream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 360 }
       });
@@ -816,14 +826,6 @@ async function connectCamera() {
       browserVideoEl.srcObject = browserMediaStream;
       await browserVideoEl.play();
 
-      response = await fetch("/api/camera/connect", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ source_type: "local", camera_id: cameraId, room: room })
-      });
-      const d = await response.json();
-      if (!response.ok) throw new Error(d.detail || "Local PC Camera connection failed.");
-
       if (!browserCanvas) {
         browserCanvas = document.createElement("canvas");
         browserCanvas.width = 640;
@@ -831,6 +833,18 @@ async function connectCamera() {
       }
       const ctx = browserCanvas.getContext("2d");
       if (browserInterval) clearInterval(browserInterval);
+
+      // Immediately mark UI as connected so user gets instant visual confirmation
+      setStatus({ connected: true, source_type: "local", room: room, camera_id: cameraId, fps: 20 });
+      message.textContent = "Local PC Camera streaming continuously with real-time face & infrastructure detection.";
+      message.style.color = "#16803c";
+
+      // Non-blocking connect notification to backend
+      fetch("/api/camera/connect", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ source_type: "local", camera_id: cameraId, room: room })
+      }).catch(() => {});
 
       let inFlight = false;
       let frameCounter = 0;
@@ -873,16 +887,15 @@ async function connectCamera() {
                 lastFpsTime = now;
               }
             }
-          } catch (_) {}
+          } catch (_) {
+            // Drop transient network hiccups and continue immediately on next frame
+          }
           finally {
             inFlight = false;
           }
         }, "image/jpeg", 0.65);
       }, 50);
 
-      setStatus(d.status);
-      message.textContent = "Local PC Camera streaming continuously with real-time face recognition.";
-      message.style.color = "#16803c";
       return;
     } else if (type === "upload") {
       const fileInput = document.getElementById("videoFile");
@@ -2067,8 +2080,9 @@ loadSavedCameras();
       const headerPill = $('headerStatusPill');
       const headerText = $('headerStatus');
       if (headerPill && headerText) {
-        headerPill.classList.toggle('connected', isConnected);
-        headerText.textContent = isConnected ? `● Connected (${camRes.room || 'Room 01'})` : 'Disconnected';
+        const isLive = isConnected || (browserInterval !== null && browserMediaStream && browserMediaStream.active);
+        headerPill.classList.toggle('connected', isLive);
+        headerText.textContent = isLive ? `● Connected (${camRes.room || 'Room 01'})` : 'Disconnected';
       }
 
       // Nav Alerts Badge
