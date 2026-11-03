@@ -153,11 +153,12 @@ class CameraManager:
 
     def feed_browser_frame(self, frame) -> bool:
         with self._lock:
-            if not self.is_connected or self.source_type not in ("browser", "local"):
-                return False
+            self.source_type = "local"
+            self.is_connected = True
+            self.health = "healthy"
+            self.consecutive_failures = 0
             self._latest_frame = frame.copy()
             self.frozen_frame_count = 0
-            self.health = "healthy"
             self._mark_frame_success(frame)
             return True
 
@@ -326,6 +327,8 @@ class CameraManager:
     def _monitor_loop(self):
         while not self._stop_event.wait(self.reconnect_interval):
             with self._lock:
+                if self.source_type in ("browser", "local"):
+                    continue
                 if (self.source_type in self.LIVE_SOURCES and self.is_connected
                         and self.last_success_monotonic is not None
                         and time.monotonic() - self.last_success_monotonic > self.heartbeat_timeout_seconds):

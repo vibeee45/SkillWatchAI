@@ -749,6 +749,9 @@ function clearMessage() { message.textContent = ""; }
 
 function setStatus(status) {
   const connected = !!status.connected;
+  if (!connected && sourceType.value === "local" && browserMediaStream && browserMediaStream.active) {
+    return; // Active browser camera stream: do not falsely disconnect UI from background status polls
+  }
   statusDot.classList.toggle("connected", connected);
   statusText.textContent = connected ? "Connected" : "Disconnected";
   headerStatus.textContent = connected ? "● Connected" : "Disconnected";
@@ -874,8 +877,8 @@ async function connectCamera() {
           finally {
             inFlight = false;
           }
-        }, "image/jpeg", 0.75);
-      }, 100);
+        }, "image/jpeg", 0.65);
+      }, 50);
 
       setStatus(d.status);
       message.textContent = "Local PC Camera streaming continuously with real-time face recognition.";

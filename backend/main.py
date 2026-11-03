@@ -176,6 +176,7 @@ recognition_service = FaceRecognitionService(
 )
 enrollment_sessions: dict[str, dict] = {}
 enrollment_lock = threading.Lock()
+cached_recognition_by_track: dict[int, dict] = {}
 
 
 class AttendanceSessionRequest(BaseModel):
@@ -727,8 +728,13 @@ def connect_camera(request: CameraConnectRequest):
 
 @app.post("/api/camera/browser-frame")
 async def receive_browser_frame(frame: UploadFile = File(...)):
+    # Auto-heal: Ensure camera connection is active whenever the browser is uploading frames
     if not camera_manager.is_connected or camera_manager.source_type not in ("browser", "local"):
-        raise HTTPException(status_code=409, detail="Local PC Camera stream is not active.")
+        camera_manager.connect_browser_stream(
+            camera_manager.camera_id or "CAM-001",
+            camera_manager.room or "Training Room 01",
+            source_type="local"
+        )
     data = await frame.read()
     nparr = np.frombuffer(data, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -739,31 +745,65 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
     timestamp_iso = datetime.now(timezone.utc).isoformat()
     frame_id = f"{camera_manager.camera_id or 'LOCAL'}-{camera_manager.frame_count:08d}"
 
-    # 1. Face detection & recognition
+    # 1. Face detection (runs every frame so face box follows face with 0 lag)
     face_detections = face_detector.detect(img)
     recognition_results = []
-    try:
-        recognition_results = recognition_service.recognize(
-            img,
-            face_detections,
-            camera_id=camera_manager.camera_id,
-            frame_id=frame_id,
-            timestamp=timestamp_iso,
-        )
-    except Exception as exc:
-        logging.getLogger("skillwatch.recognition").warning("Recognition error: %s", exc)
 
-    recognition_dicts = [r.as_dict() for r in recognition_results]
+    # High-FPS Face Recognition Cadence:
+    # Run full SFace deep embedding if:
+    # - New untracked face appears
+    # - Or candidate face is still confirming
+    # - Or periodic cadence check every 4 frames
+    need_recognition = False
+    if not face_detections:
+        cached_recognition_by_track.clear()
+    else:
+        for f in face_detections:
+            cached = cached_recognition_by_track.get(f.track_id)
+            if cached is None or cached.get("status") != "confirmed" or camera_manager.frame_count % 4 == 0:
+                need_recognition = True
+                break
 
-    # 2. Person detection & occupancy (cadence execution for high streaming FPS)
-    person_detections = []
-    try:
-        if camera_manager.frame_count % 3 == 0 or not person_detector.last_detections:
-            person_detections = person_detector.detect(img)
-        else:
-            person_detections = person_detector.last_detections
-    except Exception:
-        pass
+    if need_recognition:
+        try:
+            recognition_results = recognition_service.recognize(
+                img,
+                face_detections,
+                camera_id=camera_manager.camera_id,
+                frame_id=frame_id,
+                timestamp=timestamp_iso,
+            )
+            for r in recognition_results:
+                d = r.as_dict()
+                if d.get("track_id") is not None:
+                    cached_recognition_by_track[d["track_id"]] = d
+        except Exception as exc:
+            logging.getLogger("skillwatch.recognition").warning("Recognition error: %s", exc)
+
+    recognition_dicts = [
+        cached_recognition_by_track.get(f.track_id) or {"track_id": f.track_id, "name": "Scanning...", "status": "candidate", "similarity": 0.0}
+        for f in face_detections
+    ]
+
+    # 2. Unified person & infrastructure detection (single YOLOv8n ONNX pass on cadence)
+    all_yolo_detections = []
+    if camera_manager.frame_count % 3 == 0 or not infrastructure_detector.last_detections:
+        try:
+            all_yolo_detections = infrastructure_detector.detect(img)
+        except Exception as exc:
+            logging.getLogger("skillwatch.infrastructure").warning("YOLO detection error: %s", exc)
+            all_yolo_detections = infrastructure_detector.last_detections
+    else:
+        all_yolo_detections = infrastructure_detector.last_detections
+
+    from detection.person_detector import PersonDetection
+    person_detections = [
+        PersonDetection(d.x, d.y, d.width, d.height, d.confidence)
+        for d in all_yolo_detections if d.class_id == 0
+    ]
+    equipment_detections = [
+        d for d in all_yolo_detections if d.class_id != 0
+    ]
 
     occupancy_data = {}
     try:
@@ -775,13 +815,24 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
             img.shape[0],
         )
     except Exception:
-        pass
+        occupancy_data = occupancy_service.status()
+
+    infra_data = {}
+    try:
+        infra_data = infrastructure_observations.process(
+            equipment_detections,
+            img.shape[1],
+            img.shape[0],
+        )
+        infra_data["detector"] = infrastructure_detector.status()
+    except Exception as infra_exc:
+        logging.getLogger("skillwatch.infrastructure").warning("Infrastructure observation error: %s", infra_exc)
+        infra_data = infrastructure_observations.status()
 
     # 3. Automatic attendance logging
     active_session = attendance_store.active_session_for_camera(camera_manager.camera_id or "")
     if active_session:
-        for r in recognition_results:
-            d = r.as_dict()
+        for d in recognition_dicts:
             if d.get("status") == "confirmed" and d.get("student_id"):
                 record, created = attendance_store.mark_present(
                     active_session["id"], d["student_id"], float(d.get("similarity", 0.0)), camera_manager.camera_id
@@ -792,24 +843,6 @@ async def receive_browser_frame(frame: UploadFile = File(...)):
                         {"attendance": record, "session_id": active_session["id"]},
                         event_id=f"attendance:{active_session['id']}:{d['student_id']}",
                     )
-
-    # 2b. Infrastructure equipment detection (cadence execution for high streaming FPS)
-    equipment_detections = []
-    infra_data = {}
-    try:
-        if camera_manager.frame_count % 2 == 0 or not infrastructure_detector.last_detections:
-            equipment_detections = infrastructure_detector.detect(img)
-        else:
-            equipment_detections = infrastructure_detector.last_detections
-        infra_data = infrastructure_observations.process(
-            equipment_detections,
-            img.shape[1],
-            img.shape[0],
-        )
-        infra_data["detector"] = infrastructure_detector.status()
-    except Exception as infra_exc:
-        logging.getLogger("skillwatch.infrastructure").warning("Infrastructure detection error: %s", infra_exc)
-        infra_data = infrastructure_observations.status()
 
     # 4. Construct AI result for annotations
     ai_result = {
