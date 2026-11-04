@@ -896,6 +896,36 @@ def receive_browser_frame(frame: UploadFile = File(...)):
     ok, encoded = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
     b64_image = f"data:image/jpeg;base64,{base64.b64encode(encoded).decode('ascii')}" if ok else None
 
+    # Structured detection bounding boxes for client-side fluid camera area rendering
+    face_boxes = [
+        {
+            "x": int(f.x), "y": int(f.y), "width": int(f.width), "height": int(f.height),
+            "confidence": round(float(f.confidence), 3),
+            "track_id": f.track_id,
+            "name": (recognition_dicts[idx].get("name") if idx < len(recognition_dicts) else "Scanning..."),
+            "status": (recognition_dicts[idx].get("status") if idx < len(recognition_dicts) else "candidate"),
+            "student_id": (recognition_dicts[idx].get("student_id") if idx < len(recognition_dicts) else None),
+            "similarity": round(float(recognition_dicts[idx].get("similarity", 0.0) if idx < len(recognition_dicts) else 0.0), 3),
+        }
+        for idx, f in enumerate(face_detections)
+    ]
+    person_boxes = [
+        {
+            "x": int(p.x), "y": int(p.y), "width": int(p.width), "height": int(p.height),
+            "confidence": round(float(p.confidence), 3)
+        }
+        for p in person_detections
+    ]
+    equipment_boxes = [
+        {
+            "x": int(eq.x), "y": int(eq.y), "width": int(eq.width), "height": int(eq.height),
+            "confidence": round(float(eq.confidence), 3),
+            "class_id": int(eq.class_id),
+            "class_name": str(getattr(eq, "class_name", "equipment"))
+        }
+        for eq in equipment_detections
+    ]
+
     return {
         "status": "ok",
         "frames": camera_manager.frame_count,
@@ -910,6 +940,11 @@ def receive_browser_frame(frame: UploadFile = File(...)):
             "unknown": occupancy_data.get("unknown_persons", 0),
         },
         "infrastructure": infra_data,
+        "detections": {
+            "faces": face_boxes,
+            "persons": person_boxes,
+            "equipment": equipment_boxes,
+        },
     }
 
 

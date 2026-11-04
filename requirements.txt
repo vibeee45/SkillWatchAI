@@ -4,7 +4,7 @@ pydantic-settings
 sqlalchemy
 psycopg[binary]
 python-dotenv
-opencv-contrib-python>=4.10.0
+opencv-contrib-python>=4.10.0,<5.0.0
 numpy
 
 python-multipart

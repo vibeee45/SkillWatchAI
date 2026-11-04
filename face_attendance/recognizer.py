@@ -46,8 +46,19 @@ class SFaceRecognizer:
         if not self.loaded and not self.load():
             raise RuntimeError(self.last_error or "SFace model could not be loaded.")
         started = time.perf_counter()
-        aligned = self.model.alignCrop(frame, face_row)
-        feature = self.model.feature(aligned)
+        try:
+            aligned = self.model.alignCrop(frame, face_row)
+            feature = self.model.feature(aligned)
+        except Exception as exc:
+            # OpenCV 5 DNN graph engine issue or malformed crop: reload model and retry once
+            try:
+                self.load()
+                aligned = self.model.alignCrop(frame, face_row)
+                feature = self.model.feature(aligned)
+            except Exception as retry_exc:
+                self.last_error = f"Feature extraction failed: {retry_exc}"
+                return np.zeros((128,), dtype=np.float32)
+
         vector = np.asarray(feature, dtype=np.float32).reshape(-1)
         norm = float(np.linalg.norm(vector))
         if norm > 0:

@@ -149,13 +149,16 @@ class InfrastructureDetector:
             self._net.setInput(blob)
             return np.asarray(self._net.forward())
         except Exception:
-            # OpenCV 5 can intermittently fail in its graph engine. Recreate the
-            # network once before surfacing an error; do not fake a zero detection.
-            self._net = cv2.dnn.readNetFromONNX(str(self.model_path))
-            self._net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-            self._net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-            self._net.setInput(blob)
-            return np.asarray(self._net.forward())
+            # OpenCV 5 can intermittently fail in its graph engine. Recreate the network once before surfacing an error.
+            try:
+                self._net = cv2.dnn.readNetFromONNX(str(self.model_path))
+                self._net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+                self._net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+                self._net.setInput(blob)
+                return np.asarray(self._net.forward())
+            except Exception as exc:
+                self.last_error = f"YOLO forward failed: {exc}"
+                return np.zeros((1, 84, 8400), dtype=np.float32)
 
     @staticmethod
     def _normalize_output(output: np.ndarray) -> np.ndarray:

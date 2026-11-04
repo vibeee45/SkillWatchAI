@@ -109,6 +109,7 @@ class FaceDetector:
         self.detector = None
         self.loaded = False
         self.last_error: Optional[str] = None
+        self._current_input_size: Optional[tuple[int, int]] = None
 
         self.inference_count = 0
         self.total_faces = 0
@@ -123,7 +124,7 @@ class FaceDetector:
     # MODEL
     # ---------------------------------------------------------
 
-    def load(self) -> bool:
+    def load(self, input_size: tuple[int, int] = (640, 360)) -> bool:
         """
         Load YuNet ONNX model through OpenCV.
         """
@@ -140,7 +141,7 @@ class FaceDetector:
             self.detector = cv2.FaceDetectorYN.create(
                 model=str(self.model_path),
                 config="",
-                input_size=(320, 320),
+                input_size=input_size,
                 score_threshold=self.confidence_threshold,
                 nms_threshold=self.nms_threshold,
                 top_k=self.top_k,
@@ -148,6 +149,7 @@ class FaceDetector:
                 target_id=cv2.dnn.DNN_TARGET_CPU,
             )
 
+            self._current_input_size = input_size
             self.loaded = True
             self.last_error = None
 
@@ -446,17 +448,23 @@ class FaceDetector:
             frame.shape[:2]
         )
 
-        # YuNet must know the actual frame size.
-        self.detector.setInputSize(
-            (
-                frame_width,
-                frame_height,
-            )
-        )
+        target_size = (frame_width, frame_height)
+        if self.detector is None or getattr(self, "_current_input_size", None) != target_size:
+            self.load(input_size=target_size)
+        else:
+            try:
+                self.detector.setInputSize(target_size)
+            except Exception:
+                self.load(input_size=target_size)
 
-        _, raw_faces = (
-            self.detector.detect(frame)
-        )
+        try:
+            _, raw_faces = self.detector.detect(frame)
+        except Exception:
+            try:
+                self.load(input_size=target_size)
+                _, raw_faces = self.detector.detect(frame)
+            except Exception:
+                raw_faces = None
 
         detections: list[
             FaceDetection
