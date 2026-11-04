@@ -216,15 +216,9 @@
           <label for="sourceType">Camera Source</label>
           <select id="sourceType">
             <option value="device">Laptop / USB Camera</option>
-            <option value="local">Browser Web Camera (Live Stream from This Device)</option>
             <option value="classroom">Classroom CCTV / RTSP Stream</option>
-            <option value="upload">Upload Custom MP4 / Video File</option>
+            <option value="upload">Recorded Video File (Upload MP4)</option>
           </select>
-
-          <div id="deviceFields">
-            <label for="cameraIndex">Camera Index</label>
-            <input id="cameraIndex" type="number" min="0" value="0" />
-          </div>
 
           <div id="classroomFields" class="hidden">
             <label for="rtspUrl">Classroom CCTV / RTSP Stream URL</label>
@@ -743,7 +737,6 @@ window.fetch = async function(resource, init) {
 };
 
 const sourceType = document.getElementById("sourceType");
-const deviceFields = document.getElementById("deviceFields");
 const classroomFields = document.getElementById("classroomFields");
 const uploadFields = document.getElementById("uploadFields");
 const connectBtn = document.getElementById("connectBtn");
@@ -756,7 +749,6 @@ const statusText = document.getElementById("statusText");
 const headerStatus = document.getElementById("headerStatus");
 
 sourceType.addEventListener("change", () => {
-  if (deviceFields) deviceFields.classList.toggle("hidden", sourceType.value !== "device");
   if (classroomFields) classroomFields.classList.toggle("hidden", sourceType.value !== "classroom");
   if (uploadFields) uploadFields.classList.toggle("hidden", sourceType.value !== "upload");
   clearMessage();
@@ -775,7 +767,7 @@ function setStatus(status) {
   connectBtn.disabled = connected;
 
   if (connected) {
-    if (sourceType.value !== "local") {
+    if (!isBrowserActive) {
       const streamUrl = window.getApiUrl("/api/camera/stream");
       if (stream.getAttribute("data-connected") !== "true") {
         stream.src = streamUrl;
@@ -786,7 +778,7 @@ function setStatus(status) {
     placeholder.style.display = "none";
   } else {
     stream.removeAttribute("data-connected");
-    if (sourceType.value !== "local") {
+    if (!isBrowserActive) {
       stream.src = "";
     }
     stream.style.display = "none";
@@ -794,7 +786,7 @@ function setStatus(status) {
   }
   document.getElementById("resolution").textContent = connected ? `Resolution: ${status.width || 640} × ${status.height || 480}` : "Resolution: —";
   document.getElementById("fps").textContent = connected ? `FPS: ${Number(status.actual_fps || status.fps || 0).toFixed(1)}` : "FPS: —";
-  document.getElementById("sourceLabel").textContent = `Source: ${status.source_type || (isBrowserActive ? "browser" : "—")}`;
+  document.getElementById("sourceLabel").textContent = `Source: ${status.source_type || (isBrowserActive ? "device" : "—")}`;
   document.getElementById("roomLabel").textContent = `Room: ${status.room || "—"}`;
   document.getElementById("healthLabel").textContent = `Health: ${status.health || (isBrowserActive ? "healthy" : "—")}`;
   document.getElementById("lastFrame").textContent = `Last frame: ${status.last_frame_at ? new Date(status.last_frame_at).toLocaleTimeString() : (isBrowserActive ? new Date().toLocaleTimeString() : "—")}`;
@@ -822,23 +814,36 @@ async function connectCamera() {
     let response;
 
     if (type === "device") {
-      const cameraIndex = Number(document.getElementById("cameraIndex")?.value || 0);
-      const payload = {
-        source_type: "device",
-        camera_id: cameraId,
-        room: room,
-        camera_index: cameraIndex
-      };
-      response = await fetch("/api/camera/connect", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(payload)
-      });
-    } else if (type === "local") {
-      message.textContent = "Starting device camera...";
-      browserMediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 360 }
-      });
+      message.textContent = "Connecting Laptop / USB Camera...";
+      message.style.color = "#16803c";
+
+      try {
+        browserMediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 360 }
+        });
+      } catch (camErr) {
+        // Fallback for native server mode if browser mediaDevices is not available
+        const payload = {
+          source_type: "device",
+          camera_id: cameraId,
+          room: room,
+          camera_index: 0
+        };
+        response = await fetch("/api/camera/connect", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || "Laptop / USB Camera could not be opened. Please ensure camera access is allowed in your browser.");
+        }
+        setStatus(data.status);
+        message.textContent = "Camera connected successfully.";
+        message.style.color = "#16803c";
+        return;
+      }
+
       if (!browserVideoEl) {
         browserVideoEl = document.createElement("video");
         browserVideoEl.setAttribute("playsinline", "true");
@@ -860,14 +865,14 @@ async function connectCamera() {
         browserTimeoutId = null;
       }
 
-      setStatus({ connected: true, source_type: "browser", room: room, camera_id: cameraId, fps: 20 });
+      setStatus({ connected: true, source_type: "device", room: room, camera_id: cameraId, fps: 20 });
       message.textContent = "Camera connected successfully.";
       message.style.color = "#16803c";
 
       fetch("/api/camera/connect", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ source_type: "local", camera_id: cameraId, room: room })
+        body: JSON.stringify({ source_type: "device", camera_id: cameraId, room: room })
       }).catch(() => {});
 
       let frameCounter = 0;

@@ -110,6 +110,8 @@ class InfrastructureDetector:
             try:
                 options = ort.SessionOptions()
                 options.log_severity_level = 3
+                options.intra_op_num_threads = 2
+                options.inter_op_num_threads = 1
                 self._session = ort.InferenceSession(
                     str(self.model_path),
                     sess_options=options,

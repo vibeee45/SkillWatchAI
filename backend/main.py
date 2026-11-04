@@ -727,10 +727,8 @@ def connect_camera(request: CameraConnectRequest):
         elif request.source_type == "device":
             connected = camera_manager.connect_device_camera(request.camera_index, request.camera_id, request.room)
             if not connected:
-                raise HTTPException(
-                    status_code=503,
-                    detail="No physical USB camera detected on this server. Select 'Local PC Camera' to stream directly from this device, or 'Media Video Upload'.",
-                )
+                # Cloud/container fallback: allow browser frame streaming for Laptop / USB camera
+                connected = camera_manager.connect_browser_stream(request.camera_id, request.room, source_type="device")
         else:
             raise HTTPException(status_code=400, detail="Unsupported camera source.")
     if not connected:
@@ -744,11 +742,11 @@ def connect_camera(request: CameraConnectRequest):
 @app.post("/api/camera/browser-frame")
 def receive_browser_frame(frame: UploadFile = File(...)):
     # Auto-heal: Ensure camera connection is active whenever the browser is uploading frames
-    if not camera_manager.is_connected or camera_manager.source_type not in ("browser", "local"):
+    if not camera_manager.is_connected or camera_manager.source_type not in ("browser", "local", "device"):
         camera_manager.connect_browser_stream(
             camera_manager.camera_id or "CAM-001",
             camera_manager.room or "Training Room 01",
-            source_type="local"
+            source_type="device"
         )
     data = frame.file.read()
     nparr = np.frombuffer(data, np.uint8)
@@ -814,7 +812,7 @@ def receive_browser_frame(frame: UploadFile = File(...)):
     # 2. Unified person & infrastructure detection (asynchronous background YOLOv8n ONNX pass)
     global yolo_future, last_yolo_time
     now = time.monotonic()
-    should_run_yolo = (now - last_yolo_time >= 2.5) or not infrastructure_detector.last_detections
+    should_run_yolo = (now - last_yolo_time >= 2.0)
     if should_run_yolo:
         try:
             if yolo_future is None or yolo_future.done():
