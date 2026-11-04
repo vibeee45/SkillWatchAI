@@ -687,15 +687,25 @@ window.getApiUrl = function(path) {
     else if ((loc.hostname === 'localhost' || loc.hostname === '127.0.0.1') && loc.port !== '8000') {
       backend = 'http://127.0.0.1:8000';
     }
-    // 3. If running on Vercel (*.vercel.app), direct API calls to Render backend to avoid cold-start HTML rewrite fallbacks
+    // 3. If running on Vercel (*.vercel.app), use same-origin rewrite (/api/* -> Render)
+    // Avoids CORS preflights, cross-origin blocking, and Cloudflare 429 challenges
     else if (loc.hostname.includes('vercel.app')) {
-      backend = 'https://skillwatch-backend.onrender.com';
+      backend = '';
     }
   }
   return backend ? backend.replace(/\/+$/, '') + path : path;
 };
 
 // Safe fetch wrapper that intercepts and prevents "Unexpected token '<', <!DOCTYPE... is not valid JSON"
+
+// Helper to pause background network requests and only poll the currently visible view
+function shouldPollView(viewId) {
+  if (document.hidden) return false;
+  if (!viewId) return true;
+  const view = document.getElementById(viewId);
+  return view ? view.classList.contains('active') : false;
+}
+
 const _nativeFetch = window.fetch;
 window.fetch = async function(resource, init) {
   if (typeof resource === 'string' && resource.startsWith('/api/')) {
@@ -705,9 +715,12 @@ window.fetch = async function(resource, init) {
   try {
     response = await _nativeFetch(resource, init);
   } catch (netErr) {
+    if (netErr && netErr.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.');
+    }
     const isVercel = window.location.hostname.includes('vercel.app');
     const msg = isVercel
-      ? 'SkillWatch cloud backend (Render) is waking up. Please wait 10-15 seconds and try again.'
+      ? 'Connecting to SkillWatch cloud backend... Please wait a few moments and try again.'
       : 'SkillWatch backend server is unreachable. Please ensure the backend is running on http://127.0.0.1:8000.';
     throw new Error(msg);
   }
@@ -817,31 +830,49 @@ async function connectCamera() {
       message.textContent = "Connecting Laptop / USB Camera...";
       message.style.color = "#16803c";
 
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Webcam access requires a secure browser context (HTTPS or localhost).");
+      }
+
       try {
         browserMediaStream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 360 }
         });
       } catch (camErr) {
-        // Fallback for native server mode if browser mediaDevices is not available
-        const payload = {
-          source_type: "device",
-          camera_id: cameraId,
-          room: room,
-          camera_index: 0
-        };
-        response = await fetch("/api/camera/connect", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.detail || "Laptop / USB Camera could not be opened. Please ensure camera access is allowed in your browser.");
+        const isLocalServer = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+        if (isLocalServer) {
+          const payload = {
+            source_type: "device",
+            camera_id: cameraId,
+            room: room,
+            camera_index: 0
+          };
+          response = await fetch("/api/camera/connect", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || "Laptop / USB Camera could not be opened.");
+          }
+          setStatus(data.status);
+          message.textContent = "Camera connected successfully.";
+          message.style.color = "#16803c";
+          return;
         }
-        setStatus(data.status);
-        message.textContent = "Camera connected successfully.";
-        message.style.color = "#16803c";
-        return;
+
+        let hint = "Webcam access could not be started in your browser.";
+        if (camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError") {
+          hint = "Camera permission was denied. Click the lock/camera icon in your browser address bar and select 'Allow'.";
+        } else if (camErr.name === "NotReadableError" || camErr.name === "TrackStartError") {
+          hint = "Camera is currently in use by another application. Please close other camera apps and retry.";
+        } else if (camErr.name === "NotFoundError" || camErr.name === "DevicesNotFoundError") {
+          hint = "No webcam detected on this device. Please connect a USB camera.";
+        } else if (camErr.message) {
+          hint = camErr.message;
+        }
+        throw new Error(hint);
       }
 
       if (!browserVideoEl) {
@@ -964,7 +995,7 @@ async function connectCamera() {
         } catch (_) {}
 
         if (browserStreaming) {
-          browserTimeoutId = setTimeout(streamLoop, 30);
+          browserTimeoutId = setTimeout(streamLoop, 90);
         }
       }
 
@@ -1067,7 +1098,9 @@ async function refreshStatus() {
 connectBtn.addEventListener("click", connectCamera);
 disconnectBtn.addEventListener("click", disconnectCamera);
 refreshStatus();
-setInterval(refreshStatus, 3000);
+setInterval(() => {
+  if (shouldPollView('view-live') && !browserStreaming) refreshStatus();
+}, 8000);
 
 async function refreshOfflineStatus() {
   try {
@@ -1101,7 +1134,9 @@ document.getElementById("syncNowBtn")?.addEventListener("click", async () => {
   }
 });
 refreshOfflineStatus();
-setInterval(refreshOfflineStatus, 5000);
+setInterval(() => {
+  if (shouldPollView('view-live')) refreshOfflineStatus();
+}, 15000);
 
 const saveBtn = document.getElementById("saveBtn");
 const loadBtn = document.getElementById("loadBtn");
@@ -1135,61 +1170,7 @@ loadBtn.addEventListener("click", loadSavedCameras);
 loadSavedCameras();
 
 </script>
-<script>
-(function(){
-  const originalUpdate = window.setInterval;
-  async function updatePipelineStatus(){
-    try {
-      const r = await fetch('/api/pipeline/status');
-      if (!r.ok) return;
-      const d = await r.json();
-      let el = document.getElementById('phase3-pipeline-status');
-      if (!el) {
-        el = document.createElement('div');
-        el.id = 'phase3-pipeline-status';
-        el.style.cssText = 'margin-top:12px;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;';
-        document.body.appendChild(el);
-      }
-      const s = d.stats || {};
-      el.innerHTML = '<strong>Frame Pipeline</strong><br>' +
-        'Sample: every ' + d.sample_every_n + ' frame(s) · ' +
-        'Processed: ' + s.processed_frames + ' · ' +
-        'Processing FPS: ' + s.processing_fps + ' · ' +
-        'Avg latency: ' + s.avg_latency_ms + ' ms';
-    } catch (_) {}
-  }
-  updatePipelineStatus();
-  setInterval(updatePipelineStatus, 1000);
-})();
-</script>
-<script>
-(function(){
-  async function updateFaceStatus(){
-    try {
-      const r = await fetch('/api/face/status');
-      if (!r.ok) return;
-      const d = await r.json();
-      let el = document.getElementById('phase4-face-status');
-      if (!el) {
-        el = document.createElement('div');
-        el.id = 'phase4-face-status';
-        el.style.cssText = 'margin:12px 0 0;padding:10px 12px;border-radius:10px;background:#f5f7fa;font-size:12px;line-height:1.5;';
-        document.body.appendChild(el);
-      }
-      const detections = d.detections || [];
-      const modelState = d.loaded ? 'loaded' : 'not loaded';
-      el.innerHTML = '<strong>Face Detection</strong><br>' +
-        'Model: YuNet (' + modelState + ') · ' +
-        'Faces: ' + detections.length + ' · ' +
-        'Active tracks: ' + (d.active_tracks || 0) + ' · ' +
-        'Inference: ' + (d.last_inference_ms || 0) + ' ms' +
-        (d.last_error ? '<br><span style="color:#b42318">' + d.last_error + '</span>' : '');
-    } catch (_) {}
-  }
-  updateFaceStatus();
-  setInterval(updateFaceStatus, 1000);
-})();
-</script>
+
 <script>
 (function(){
   // Main student management tab elements
@@ -1607,7 +1588,9 @@ loadSavedCameras();
   document.getElementById('testRecognitionBtn').onclick=test;
   document.getElementById('resetRecognitionBtn').onclick=reset;
   refresh();
-  setInterval(refresh,1000);
+  setInterval(() => {
+    if (shouldPollView('view-recognition')) refresh();
+  }, 5000);
 })();
 </script>
 
@@ -1636,7 +1619,9 @@ loadSavedCameras();
   async function refresh(){try{const r=await fetch('/api/occupancy/status');if(!r.ok)return;render(await r.json());}catch(_){}}
   async function save(){try{let zones;try{zones=JSON.parse($('occupancyZones').value);}catch(_){throw Error('Zone JSON is invalid.');}const r=await fetch('/api/occupancy/zones',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zones})});const d=await r.json();if(!r.ok)throw Error(d.detail||'Could not save zones.');$('occupancyZones').value=JSON.stringify(d.zones);msg('Zones saved.',true);refresh();}catch(e){msg(e.message);}}
   async function reset(){try{const r=await fetch('/api/occupancy/reset',{method:'POST'});const d=await r.json();if(!r.ok)throw Error(d.detail||'Reset failed.');render({occupancy:d.status,detector:{}});msg('Occupancy state reset.',true);}catch(e){msg(e.message);}}
-  $('saveOccupancyZonesBtn').onclick=save;$('resetOccupancyBtn').onclick=reset;refresh();setInterval(refresh,1000);
+  $('saveOccupancyZonesBtn').onclick=save;$('resetOccupancyBtn').onclick=reset;refresh();setInterval(() => {
+    if (shouldPollView('view-occupancy')) refresh();
+  }, 5000);
 })();
 </script>
 
@@ -1668,7 +1653,9 @@ loadSavedCameras();
   async function audit(){if(!sessionId)return;const r=await fetch(`/api/attendance/sessions/${sessionId}/audit`);const d=await r.json();$('attendanceAudit').innerHTML='<strong>Audit Log</strong><br>'+((d.audit||[]).map(a=>`${esc(a.timestamp)} · ${esc(a.student_id)} · ${esc(a.old_status||'—')} → ${esc(a.new_status)} · ${esc(a.actor)} · ${esc(a.reason||'')}`).join('<br>')||'No audit events.');}
   async function correct(){if(!sessionId){msg('Create a session first.');return;}try{const payload={session_id:sessionId,student_id:$('corrStudent').value.trim(),status:$('corrStatus').value,reason:$('corrReason').value.trim(),actor:$('corrActor').value.trim()||'admin'};if(!payload.student_id)throw Error('Student ID is required.');const r=await fetch('/api/attendance/correct',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.detail||'Correction failed.');msg('Attendance correction applied.',true);refresh();audit();}catch(e){msg(e.message);}}
   $('createAttendanceBtn').onclick=create;$('startAttendanceBtn').onclick=start;$('endAttendanceBtn').onclick=end;$('refreshAttendanceBtn').onclick=refresh;$('loadAuditBtn').onclick=audit;$('correctAttendanceBtn').onclick=correct;
-  setInterval(refresh,1500);
+  setInterval(() => {
+    if (shouldPollView('view-attendance')) refresh();
+  }, 6000);
 })();
 </script>
 
@@ -1751,7 +1738,9 @@ loadSavedCameras();
     } catch (_) {}
   }
   updateKPIs();
-  setInterval(updateKPIs, 2000);
+  setInterval(() => {
+    if (!document.hidden) updateKPIs();
+  }, 8000);
 })();
 </script>
 
@@ -1891,7 +1880,9 @@ loadSavedCameras();
   $('resetInfraBtn').onclick = resetObservations;
 
   refreshInfra();
-  setInterval(refreshInfra, 2000);
+  setInterval(() => {
+    if (shouldPollView('view-infra')) refreshInfra();
+  }, 6000);
 })();
 </script>
 
@@ -2021,7 +2012,9 @@ loadSavedCameras();
 
   loadAlerts();
   loadComplianceEvents();
-  setInterval(loadAlerts, 3000);
+  setInterval(() => {
+    if (shouldPollView('view-compliance')) loadAlerts();
+  }, 8000);
 })();
 </script>
 
@@ -2221,7 +2214,9 @@ loadSavedCameras();
   });
 
   updateSystemView();
-  setInterval(updateSystemView, 3000);
+  setInterval(() => {
+    if (shouldPollView('view-system')) updateSystemView();
+  }, 8000);
 })();
 </script>
 </body>
