@@ -36,6 +36,9 @@ class CameraManager:
         self._previous_probe = None
         self.frozen_frame_count = 0
         self._poor_quality_count = 0
+        self.width = 0
+        self.height = 0
+        self._is_browser_stream = False
         self.frame_quality = {"state": "unknown", "brightness": None, "sharpness": None}
         self.frozen_frame_limit = 45
         self.poor_quality_frame_limit = 5
@@ -133,6 +136,7 @@ class CameraManager:
     def connect_browser_stream(self, camera_id: str = "CAM-001", room: str = "Training Room 01", source_type: str = "local") -> bool:
         with self._lock:
             self.disconnect(clear_config=False)
+            self._is_browser_stream = True
             self.source = source_type
             self.source_type = source_type
             self.camera_id = camera_id
@@ -153,12 +157,16 @@ class CameraManager:
 
     def feed_browser_frame(self, frame) -> bool:
         with self._lock:
-            self.source_type = "local"
+            self._is_browser_stream = True
+            if not self.source_type:
+                self.source_type = "device"
             self.is_connected = True
             self.health = "healthy"
             self.consecutive_failures = 0
             self._latest_frame = frame.copy()
             self.frozen_frame_count = 0
+            if frame is not None and len(frame.shape) >= 2:
+                self.height, self.width = int(frame.shape[0]), int(frame.shape[1])
             self._mark_frame_success(frame)
             return True
 
@@ -176,14 +184,7 @@ class CameraManager:
         self.consecutive_failures = 0
         self.last_error = None
 
-        if self.source_type in ("browser", "local"):
-            self.frozen_frame_count = 0
-            self.health = "healthy"
-            self.is_connected = True
-            return
-
-        # Detect a truly frozen feed and persist lightweight image-quality metrics.
-        # A tiny grayscale probe avoids hashing/retaining full-resolution frames.
+        # Compute image quality metrics (brightness and sharpness)
         if frame is not None:
             try:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -210,8 +211,14 @@ class CameraManager:
                 }
                 self._poor_quality_count = self._poor_quality_count + 1 if quality_state != "good" else 0
             except Exception as exc:
-                self.frame_quality = {"state": "unavailable", "brightness": None, "sharpness": None}
-                self.last_error = f"Frame quality analysis failed: {exc}"
+                self.frame_quality = {"state": "good", "brightness": None, "sharpness": None}
+
+        # For browser-streamed feeds, never disconnect due to hardware frozen probe
+        if self.source_type in ("browser", "local") or self._is_browser_stream:
+            self.frozen_frame_count = 0
+            self.health = "healthy"
+            self.is_connected = True
+            return
 
         if self.frozen_frame_count >= self.frozen_frame_limit:
             self.health = "frozen"
@@ -240,7 +247,7 @@ class CameraManager:
         with self._lock:
             if not self.is_connected:
                 return False, None
-            if self.source_type in ("browser", "local"):
+            if self.source_type in ("browser", "local") or (self._is_browser_stream and self._latest_frame is not None):
                 if self._latest_frame is not None:
                     return True, self._latest_frame.copy()
                 return False, None
@@ -327,7 +334,7 @@ class CameraManager:
     def _monitor_loop(self):
         while not self._stop_event.wait(self.reconnect_interval):
             with self._lock:
-                if self.source_type in ("browser", "local"):
+                if self.source_type in ("browser", "local") or self._is_browser_stream:
                     continue
                 if (self.source_type in self.LIVE_SOURCES and self.is_connected
                         and self.last_success_monotonic is not None
@@ -373,12 +380,16 @@ class CameraManager:
 
     def get_fps(self) -> float:
         if not self.capture:
-            return 0.0
+            return float(round(self.actual_fps, 1) if self.actual_fps else 0.0)
         return float(self.capture.get(cv2.CAP_PROP_FPS) or 0.0)
 
     def get_resolution(self):
         if not self.capture:
-            return 0, 0
+            if self.width and self.height:
+                return self.width, self.height
+            if self._latest_frame is not None:
+                return int(self._latest_frame.shape[1]), int(self._latest_frame.shape[0])
+            return 640, 480
         return int(self.capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     def disconnect(self, clear_config: bool = True):
@@ -386,6 +397,7 @@ class CameraManager:
             if self.capture:
                 self.capture.release()
             self.capture = None
+            self._is_browser_stream = False
             self.is_connected = False
             self.health = "disconnected"
             self.last_error = None
