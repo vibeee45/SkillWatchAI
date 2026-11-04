@@ -736,6 +736,8 @@ window.fetch = async function(resource, init) {
         const status = response.status || 500;
         if (status === 404) {
           throw new Error('API endpoint not found (404). Ensure the SkillWatch backend is running on http://127.0.0.1:8000.');
+        } else if (status === 429) {
+          throw new Error('Cloud rate limit active (HTTP 429: Too Many Requests). Please open http://127.0.0.1:8000 locally on your computer for instant access without cloud rate limits, or wait 3-5 minutes for the cloud cooldown.');
         } else if (status === 502 || status === 503 || status === 504) {
           throw new Error(`Cloud backend is waking up (HTTP ${status}). Please wait 10-15 seconds and try again.`);
         } else {
