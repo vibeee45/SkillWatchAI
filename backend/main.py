@@ -8,10 +8,11 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse, Response
+from fastapi.responses import FileResponse, StreamingResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import traceback
 
 from camera.camera_manager import CameraManager
 from camera.camera_store import CameraStore
@@ -59,6 +60,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(Exception)
+def global_exception_handler(request, exc):
+    tb = traceback.format_exc()
+    logging.getLogger("skillwatch.error").error("Unhandled exception: %s\n%s", exc, tb)
+    return JSONResponse(status_code=500, content={"detail": str(exc), "traceback": tb})
+
 ASSETS_DIR = FRONTEND_DIR / "assets"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
@@ -85,7 +93,10 @@ def get_favicon():
 camera_manager = CameraManager()
 camera_store = CameraStore(DATA_DIR / "cameras.json")
 camera_lock = threading.Lock()
-face_detector = FaceDetector(BASE_DIR / "models" / "face_detection_yunet_2023mar.onnx", confidence_threshold=0.6)
+face_detector = FaceDetector(
+    BASE_DIR / "models" / "face_detection_yunet_2023mar.onnx",
+    confidence_threshold=float(os.getenv("SKILLWATCH_FACE_CONFIDENCE", "0.40")),
+)
 face_processor = FaceDetectionProcessor(face_detector)
 frame_pipeline = FramePipeline(
     sample_every_n=int(os.getenv("SKILLWATCH_PIPELINE_SAMPLE_EVERY_N", "2")),
@@ -180,6 +191,7 @@ cached_recognition_by_track: dict[int, dict] = {}
 import concurrent.futures
 yolo_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="skillwatch_yolo")
 yolo_future: concurrent.futures.Future | None = None
+last_yolo_time: float = 0.0
 
 
 class AttendanceSessionRequest(BaseModel):
@@ -800,14 +812,21 @@ def receive_browser_frame(frame: UploadFile = File(...)):
     ]
 
     # 2. Unified person & infrastructure detection (asynchronous background YOLOv8n ONNX pass)
-    global yolo_future
-    if yolo_future is None or yolo_future.done():
-        if yolo_future is not None and yolo_future.done():
-            try:
-                yolo_future.result()
-            except Exception as exc:
-                logging.getLogger("skillwatch.infrastructure").warning("Async YOLO detection error: %s", exc)
-        yolo_future = yolo_executor.submit(infrastructure_detector.detect, img.copy())
+    global yolo_future, last_yolo_time
+    now = time.monotonic()
+    should_run_yolo = (now - last_yolo_time >= 2.5) or not infrastructure_detector.last_detections
+    if should_run_yolo:
+        try:
+            if yolo_future is None or yolo_future.done():
+                if yolo_future is not None and yolo_future.done():
+                    try:
+                        yolo_future.result()
+                    except Exception as exc:
+                        logging.getLogger("skillwatch.infrastructure").warning("Async YOLO detection error: %s", exc)
+                last_yolo_time = now
+                yolo_future = yolo_executor.submit(infrastructure_detector.detect, img.copy())
+        except Exception as exec_err:
+            logging.getLogger("skillwatch.infrastructure").warning("Could not submit async YOLO: %s", exec_err)
 
     all_yolo_detections = list(infrastructure_detector.last_detections)
 
@@ -874,7 +893,7 @@ def receive_browser_frame(frame: UploadFile = File(...)):
     annotated = _annotate_infrastructure_detections(annotated, ai_result)
     annotated = _annotate_face_detections(annotated, ai_result)
 
-    ok, encoded = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    ok, encoded = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
     b64_image = f"data:image/jpeg;base64,{base64.b64encode(encoded).decode('ascii')}" if ok else None
 
     return {

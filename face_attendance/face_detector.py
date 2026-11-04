@@ -84,7 +84,7 @@ class FaceDetector:
     def __init__(
         self,
         model_path: str | Path = "models/face_detection_yunet_2023mar.onnx",
-        confidence_threshold: float = 0.6,
+        confidence_threshold: float = 0.40,
         nms_threshold: float = 0.3,
         top_k: int = 5000,
         min_face_size: int = 20,
