@@ -215,10 +215,16 @@
 
           <label for="sourceType">Camera Source</label>
           <select id="sourceType">
-            <option value="local">Local PC Camera</option>
-            <option value="classroom">Classroom Camera</option>
-            <option value="upload">Media Video Upload</option>
+            <option value="device">Laptop / USB Camera</option>
+            <option value="local">Browser Web Camera (Live Stream from This Device)</option>
+            <option value="classroom">Classroom CCTV / RTSP Stream</option>
+            <option value="upload">Upload Custom MP4 / Video File</option>
           </select>
+
+          <div id="deviceFields">
+            <label for="cameraIndex">Camera Index</label>
+            <input id="cameraIndex" type="number" min="0" value="0" />
+          </div>
 
           <div id="classroomFields" class="hidden">
             <label for="rtspUrl">Classroom CCTV / RTSP Stream URL</label>
@@ -256,9 +262,8 @@
 
         <section class="card">
           <h2>Live Camera Preview</h2>
-          <div class="preview" style="position:relative;">
+          <div class="preview">
             <img id="stream" src="/api/camera/stream" alt="Camera stream" />
-            <canvas id="cameraCanvas" style="display:none; max-width:100%; max-height:620px; width:auto; height:auto; border-radius:6px;"></canvas>
             <div class="placeholder" id="placeholder">
               Connect a camera source to start the preview.
             </div>
@@ -738,12 +743,12 @@ window.fetch = async function(resource, init) {
 };
 
 const sourceType = document.getElementById("sourceType");
+const deviceFields = document.getElementById("deviceFields");
 const classroomFields = document.getElementById("classroomFields");
 const uploadFields = document.getElementById("uploadFields");
 const connectBtn = document.getElementById("connectBtn");
 const disconnectBtn = document.getElementById("disconnectBtn");
 const stream = document.getElementById("stream");
-const cameraCanvas = document.getElementById("cameraCanvas");
 const placeholder = document.getElementById("placeholder");
 const message = document.getElementById("message");
 const statusDot = document.getElementById("statusDot");
@@ -751,6 +756,7 @@ const statusText = document.getElementById("statusText");
 const headerStatus = document.getElementById("headerStatus");
 
 sourceType.addEventListener("change", () => {
+  if (deviceFields) deviceFields.classList.toggle("hidden", sourceType.value !== "device");
   if (classroomFields) classroomFields.classList.toggle("hidden", sourceType.value !== "classroom");
   if (uploadFields) uploadFields.classList.toggle("hidden", sourceType.value !== "upload");
   clearMessage();
@@ -769,42 +775,30 @@ function setStatus(status) {
   connectBtn.disabled = connected;
 
   if (connected) {
-    if (sourceType.value === "local") {
-      if (cameraCanvas) cameraCanvas.style.display = "block";
-      stream.style.display = "none";
-      placeholder.style.display = "none";
-    } else {
-      if (cameraCanvas) cameraCanvas.style.display = "none";
+    if (sourceType.value !== "local") {
       const streamUrl = window.getApiUrl("/api/camera/stream");
       if (stream.getAttribute("data-connected") !== "true") {
         stream.src = streamUrl;
         stream.setAttribute("data-connected", "true");
       }
-      stream.style.display = "block";
-      placeholder.style.display = "none";
     }
+    stream.style.display = "block";
+    placeholder.style.display = "none";
   } else {
     stream.removeAttribute("data-connected");
     if (sourceType.value !== "local") {
       stream.src = "";
     }
-    if (cameraCanvas) cameraCanvas.style.display = "none";
     stream.style.display = "none";
     placeholder.style.display = "block";
   }
-  document.getElementById("resolution").textContent = connected ? `Resolution: ${status.width || 640} × ${status.height || 360}` : "Resolution: —";
-  if (!isBrowserActive) {
-    document.getElementById("fps").textContent = connected ? `FPS: ${Number(status.actual_fps || status.fps || 0).toFixed(1)}` : "FPS: —";
-  }
-  document.getElementById("sourceLabel").textContent = `Source: ${status.source_type || (isBrowserActive ? "local" : "—")}`;
+  document.getElementById("resolution").textContent = connected ? `Resolution: ${status.width || 640} × ${status.height || 480}` : "Resolution: —";
+  document.getElementById("fps").textContent = connected ? `FPS: ${Number(status.actual_fps || status.fps || 0).toFixed(1)}` : "FPS: —";
+  document.getElementById("sourceLabel").textContent = `Source: ${status.source_type || (isBrowserActive ? "browser" : "—")}`;
   document.getElementById("roomLabel").textContent = `Room: ${status.room || "—"}`;
   document.getElementById("healthLabel").textContent = `Health: ${status.health || (isBrowserActive ? "healthy" : "—")}`;
   document.getElementById("lastFrame").textContent = `Last frame: ${status.last_frame_at ? new Date(status.last_frame_at).toLocaleTimeString() : (isBrowserActive ? new Date().toLocaleTimeString() : "—")}`;
-  if (!isBrowserActive) {
-    document.getElementById("frameAgeLabel").textContent = `Frame age: ${status.frame_age_seconds == null ? "—" : `${Number(status.frame_age_seconds).toFixed(1)}s`}`;
-  } else {
-    document.getElementById("frameAgeLabel").textContent = `Frame age: 0.0s (Live)`;
-  }
+  document.getElementById("frameAgeLabel").textContent = `Frame age: ${status.frame_age_seconds == null ? "—" : `${Number(status.frame_age_seconds).toFixed(1)}s`}`;
   const quality = status.frame_quality || {};
   document.getElementById("qualityLabel").textContent = `Image quality: ${quality.state || "—"}${quality.sharpness == null ? "" : ` (sharpness ${quality.sharpness})`}`;
   document.getElementById("reconnectLabel").textContent = `Reconnects: ${status.reconnect_attempts || 0}`;
@@ -816,196 +810,6 @@ let browserCanvas = null;
 let browserInterval = null;
 let browserStreaming = false;
 let browserTimeoutId = null;
-let renderAnimId = null;
-let latestDetections = { faces: [], persons: [], equipment: [] };
-let lastDisplayFpsTime = performance.now();
-let displayFrameCount = 0;
-let currentDisplayFps = "30.0";
-let aiInFlight = false;
-
-function drawDetectionAreas(ctx, width, height) {
-  if (!latestDetections) return;
-
-  const scaleX = width / 640;
-  const scaleY = height / 360;
-
-  // 1. Person Detection Areas (Cyan / Blue)
-  const persons = latestDetections.persons || [];
-  persons.forEach((p, idx) => {
-    const px = p.x * scaleX;
-    const py = p.y * scaleY;
-    const pw = p.width * scaleX;
-    const ph = p.height * scaleY;
-
-    ctx.strokeStyle = "#0ea5e9";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(px, py, pw, ph);
-
-    const tagText = `Person #${idx + 1} (${Math.round(p.confidence * 100)}%)`;
-    ctx.font = "bold 11px sans-serif";
-    const textWidth = ctx.measureText(tagText).width;
-    ctx.fillStyle = "rgba(14, 165, 233, 0.85)";
-    ctx.fillRect(px, Math.max(0, py - 18), textWidth + 8, 18);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(tagText, px + 4, Math.max(13, py - 4));
-  });
-
-  // 2. Infrastructure / Equipment Detection Areas (Vibrant Amber / Gold)
-  const equipment = latestDetections.equipment || [];
-  equipment.forEach(item => {
-    const ex = item.x * scaleX;
-    const ey = item.y * scaleY;
-    const ew = item.width * scaleX;
-    const eh = item.height * scaleY;
-
-    ctx.strokeStyle = "#f59e0b";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(ex, ey, ew, eh);
-
-    const label = `${(item.class_name || 'EQUIPMENT').toUpperCase()} (${Math.round(item.confidence * 100)}%)`;
-    ctx.font = "bold 11px sans-serif";
-    const textWidth = ctx.measureText(label).width;
-    ctx.fillStyle = "rgba(245, 158, 11, 0.85)";
-    ctx.fillRect(ex, Math.max(0, ey - 18), textWidth + 8, 18);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(label, ex + 4, Math.max(13, ey - 4));
-  });
-
-  // 3. Face Detection Areas (Green for Confirmed, Amber for Candidate/Evaluating, Red for Unregistered)
-  const faces = latestDetections.faces || [];
-  faces.forEach(f => {
-    const fx = f.x * scaleX;
-    const fy = f.y * scaleY;
-    const fw = f.width * scaleX;
-    const fh = f.height * scaleY;
-
-    let color = "#10b981"; // Confirmed green
-    let statusLabel = "[CONFIRMED]";
-    if (f.status === "candidate") {
-      color = "#f59e0b"; // Evaluating amber
-      statusLabel = "[EVALUATING]";
-    } else if (f.status === "unregistered" || f.status === "unknown") {
-      color = "#ef4444"; // Unenrolled red
-      statusLabel = "[UNREGISTERED]";
-    }
-
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(fx, fy, fw, fh);
-
-    const name = f.name || "Student";
-    const sim = f.similarity ? ` · ${(f.similarity * 100).toFixed(0)}%` : "";
-    const tagText = `${name}${sim} ${statusLabel}`;
-    ctx.font = "bold 12px sans-serif";
-    const textWidth = ctx.measureText(tagText).width;
-    ctx.fillStyle = color;
-    ctx.fillRect(fx, Math.max(0, fy - 20), textWidth + 10, 20);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(tagText, fx + 5, Math.max(14, fy - 5));
-  });
-
-  // 4. On-Screen Live Camera HUD Bar (Clean Direct-Screen display)
-  const hudText = `LIVE CAMERA · FPS: ${currentDisplayFps} · Faces: ${faces.length} · People: ${persons.length} · Equipment: ${equipment.length}`;
-  ctx.font = "bold 11px sans-serif";
-  const hudWidth = ctx.measureText(hudText).width;
-  ctx.fillStyle = "rgba(13, 20, 26, 0.75)";
-  ctx.fillRect(8, 8, hudWidth + 16, 22);
-  ctx.fillStyle = "#10b981";
-  ctx.beginPath();
-  ctx.arc(18, 19, 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#e2e8f0";
-  ctx.fillText(hudText, 28, 23);
-}
-
-function renderDisplayLoop() {
-  if (!browserStreaming) return;
-  if (browserVideoEl && browserVideoEl.readyState >= 2) {
-    if (cameraCanvas) {
-      if (cameraCanvas.width !== browserVideoEl.videoWidth || cameraCanvas.height !== browserVideoEl.videoHeight) {
-        if (browserVideoEl.videoWidth > 0 && browserVideoEl.videoHeight > 0) {
-          cameraCanvas.width = browserVideoEl.videoWidth;
-          cameraCanvas.height = browserVideoEl.videoHeight;
-        }
-      }
-      const ctx = cameraCanvas.getContext("2d");
-      // Continuous native video playback (0 latency, fluid motion)
-      ctx.drawImage(browserVideoEl, 0, 0, cameraCanvas.width, cameraCanvas.height);
-      // Draw detection areas directly on the video
-      drawDetectionAreas(ctx, cameraCanvas.width, cameraCanvas.height);
-    }
-
-    displayFrameCount++;
-    const now = performance.now();
-    if (now - lastDisplayFpsTime >= 1000) {
-      currentDisplayFps = (displayFrameCount * 1000 / (now - lastDisplayFpsTime)).toFixed(1);
-      document.getElementById("fps").textContent = `FPS: ${currentDisplayFps} (Continuous Video)`;
-      const kpiFps = document.getElementById("kpiCameraFps");
-      if (kpiFps) kpiFps.textContent = `FPS: ${currentDisplayFps} · Continuous Video`;
-      displayFrameCount = 0;
-      lastDisplayFpsTime = now;
-    }
-  }
-  renderAnimId = requestAnimationFrame(renderDisplayLoop);
-}
-
-async function aiSendLoop() {
-  if (!browserStreaming || !browserMediaStream || !browserMediaStream.active) return;
-
-  if (!aiInFlight && browserVideoEl && browserVideoEl.readyState >= 2) {
-    aiInFlight = true;
-    try {
-      if (!browserCanvas) {
-        browserCanvas = document.createElement("canvas");
-        browserCanvas.width = 640;
-        browserCanvas.height = 360;
-      }
-      const bCtx = browserCanvas.getContext("2d");
-      bCtx.drawImage(browserVideoEl, 0, 0, 640, 360);
-      const blob = await new Promise(r => browserCanvas.toBlob(r, "image/jpeg", 0.60));
-      if (blob && browserStreaming) {
-        const fd = new FormData();
-        fd.append("frame", blob, "frame.jpg");
-
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
-        try {
-          const res = await fetch("/api/camera/browser-frame", {
-            method: "POST",
-            body: fd,
-            signal: controller.signal
-          });
-          clearTimeout(timeout);
-          if (res.ok) {
-            const resData = await res.json();
-            if (resData.detections) {
-              latestDetections = resData.detections;
-            }
-            if (window.renderLiveRecognition && resData.recognition) {
-              window.renderLiveRecognition(resData.recognition);
-            }
-            if (window.renderLiveOccupancy && resData.occupancy) {
-              window.renderLiveOccupancy(resData.occupancy);
-            }
-            if (window.renderLiveInfrastructure && resData.infrastructure) {
-              window.renderLiveInfrastructure(resData.infrastructure);
-            }
-          }
-        } finally {
-          clearTimeout(timeout);
-        }
-      }
-    } catch (_) {
-      // transient network drop - video loop continues smoothly without interruption
-    } finally {
-      aiInFlight = false;
-    }
-  }
-
-  if (browserStreaming) {
-    browserTimeoutId = setTimeout(aiSendLoop, 40);
-  }
-}
 
 async function connectCamera() {
   clearMessage();
@@ -1017,7 +821,20 @@ async function connectCamera() {
   try {
     let response;
 
-    if (type === "local") {
+    if (type === "device") {
+      const cameraIndex = Number(document.getElementById("cameraIndex")?.value || 0);
+      const payload = {
+        source_type: "device",
+        camera_id: cameraId,
+        room: room,
+        camera_index: cameraIndex
+      };
+      response = await fetch("/api/camera/connect", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+    } else if (type === "local") {
       message.textContent = "Starting device camera...";
       browserMediaStream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 360 }
@@ -1035,36 +852,88 @@ async function connectCamera() {
         browserCanvas.width = 640;
         browserCanvas.height = 360;
       }
+      const ctx = browserCanvas.getContext("2d");
       browserStreaming = true;
       browserInterval = true;
-      aiInFlight = false;
-      latestDetections = { faces: [], persons: [], equipment: [] };
       if (browserTimeoutId) {
         clearTimeout(browserTimeoutId);
         browserTimeoutId = null;
       }
-      if (renderAnimId) {
-        cancelAnimationFrame(renderAnimId);
-        renderAnimId = null;
-      }
 
-      // Immediately display connected status & continuous video canvas
-      setStatus({ connected: true, source_type: "local", room: room, camera_id: cameraId, fps: 30 });
-      message.textContent = "Local PC Camera streaming continuously with real-time face & infrastructure detection.";
+      setStatus({ connected: true, source_type: "browser", room: room, camera_id: cameraId, fps: 20 });
+      message.textContent = "Camera connected successfully.";
       message.style.color = "#16803c";
 
-      // Non-blocking connect notification to backend
       fetch("/api/camera/connect", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ source_type: "local", camera_id: cameraId, room: room })
       }).catch(() => {});
 
-      // Start continuous native 30/60 FPS video render loop
-      renderAnimId = requestAnimationFrame(renderDisplayLoop);
+      let frameCounter = 0;
+      let lastFpsTime = performance.now();
 
-      // Start asynchronous AI processing loop
-      aiSendLoop();
+      async function streamLoop() {
+        if (!browserStreaming || !browserMediaStream || !browserMediaStream.active) return;
+        if (!browserVideoEl || browserVideoEl.readyState < 2) {
+          browserTimeoutId = setTimeout(streamLoop, 50);
+          return;
+        }
+
+        try {
+          ctx.drawImage(browserVideoEl, 0, 0, 640, 360);
+          const blob = await new Promise(r => browserCanvas.toBlob(r, "image/jpeg", 0.65));
+          if (blob && browserStreaming) {
+            const fd = new FormData();
+            fd.append("frame", blob, "frame.jpg");
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 4000);
+            try {
+              const res = await fetch("/api/camera/browser-frame", {
+                method: "POST",
+                body: fd,
+                signal: controller.signal
+              });
+              clearTimeout(timeout);
+              if (res.ok) {
+                const resData = await res.json();
+                if (resData.annotated_image && browserStreaming) {
+                  stream.src = resData.annotated_image;
+                  stream.style.display = "block";
+                  placeholder.style.display = "none";
+                }
+                if (window.renderLiveRecognition && resData.recognition) {
+                  window.renderLiveRecognition(resData.recognition);
+                }
+                if (window.renderLiveOccupancy && resData.occupancy) {
+                  window.renderLiveOccupancy(resData.occupancy);
+                }
+                if (window.renderLiveInfrastructure && resData.infrastructure) {
+                  window.renderLiveInfrastructure(resData.infrastructure);
+                }
+                frameCounter++;
+                const now = performance.now();
+                if (now - lastFpsTime >= 1000) {
+                  const fpsVal = (frameCounter * 1000 / (now - lastFpsTime)).toFixed(1);
+                  document.getElementById("fps").textContent = `FPS: ${fpsVal}`;
+                  const kpiFps = document.getElementById("kpiCameraFps");
+                  if (kpiFps) kpiFps.textContent = `FPS: ${fpsVal} · Live Streaming`;
+                  frameCounter = 0;
+                  lastFpsTime = now;
+                }
+              }
+            } finally {
+              clearTimeout(timeout);
+            }
+          }
+        } catch (_) {}
+
+        if (browserStreaming) {
+          browserTimeoutId = setTimeout(streamLoop, 30);
+        }
+      }
+
+      streamLoop();
       return;
     } else if (type === "upload") {
       const fileInput = document.getElementById("videoFile");
@@ -1105,7 +974,6 @@ async function connectCamera() {
     }
 
     const data = await response.json();
-
     if (!response.ok) {
       throw new Error(data.detail || "Camera connection failed.");
     }
@@ -1124,12 +992,6 @@ async function disconnectCamera() {
 
   browserStreaming = false;
   browserInterval = null;
-  aiInFlight = false;
-  latestDetections = { faces: [], persons: [], equipment: [] };
-  if (renderAnimId) {
-    cancelAnimationFrame(renderAnimId);
-    renderAnimId = null;
-  }
   if (browserTimeoutId) {
     clearTimeout(browserTimeoutId);
     browserTimeoutId = null;
@@ -1141,9 +1003,6 @@ async function disconnectCamera() {
   if (browserVideoEl) {
     try { browserVideoEl.pause(); } catch (_) {}
     browserVideoEl.srcObject = null;
-  }
-  if (cameraCanvas) {
-    cameraCanvas.style.display = "none";
   }
   stream.src = "";
   stream.removeAttribute("data-connected");
