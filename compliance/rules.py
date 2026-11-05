@@ -65,7 +65,14 @@ class InfrastructureObservationService:
     def process(self, detections: list[EquipmentDetection], frame_width: int, frame_height: int) -> dict[str, Any]:
         counts_by_class: dict[str, int] = defaultdict(int)
         counts_by_zone: dict[str, dict[str, int]] = {zone["zone_id"]: defaultdict(int) for zone in self.zones}
+        filtered_detections: list[EquipmentDetection] = []
         for detection in detections:
+            cname = str(getattr(detection, "class_name", "")).strip().lower()
+            cid = getattr(detection, "class_id", -1)
+            # Humans must never be counted as equipment / infrastructure assets
+            if cname == "person" or cid == 0:
+                continue
+            filtered_detections.append(detection)
             counts_by_class[detection.class_name] += 1
             detection.zone_id = None
             for zone in self.zones:
@@ -81,7 +88,7 @@ class InfrastructureObservationService:
             "current_counts": dict(counts_by_class),
             "counts_by_zone": {zone: dict(counts) for zone, counts in counts_by_zone.items()},
             "zones": self.get_zones(),
-            "detections": [d.as_dict() for d in detections],
+            "detections": [d.as_dict() for d in filtered_detections],
             "note": "Observed detections only. No expected counts, inventory comparison, or shortage inference is configured.",
         }
         self.last_result = result

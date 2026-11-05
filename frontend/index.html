@@ -184,8 +184,8 @@
       <div class="kpi-grid">
         <div class="kpi-card">
           <div class="kpi-title">Camera Health</div>
-          <div class="kpi-value" id="kpiCameraHealth">OFFLINE</div>
-          <div class="kpi-sub" id="kpiCameraFps">FPS: — · Frame age: —</div>
+          <div class="kpi-value" id="kpiCameraHealth" style="color:#667085;">DISCONNECTED</div>
+          <div class="kpi-sub" id="kpiCameraFps">FPS: — · Camera inactive</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-title">Room Occupancy</div>
@@ -200,7 +200,7 @@
         <div class="kpi-card">
           <div class="kpi-title">Observed Assets</div>
           <div class="kpi-value" id="kpiAssets">0</div>
-          <div class="kpi-sub" id="kpiAssetsSub">chairs, tables, laptops, monitors</div>
+          <div class="kpi-sub" id="kpiAssetsSub">no items detected</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-title">Compliance Alerts</div>
@@ -251,6 +251,10 @@
             <button class="danger" id="loadBtn">Load Saved Cameras</button>
           </div>
           <select id="savedCameras" class="hidden"><option value="">Select saved camera...</option></select>
+          <button id="resetDemoBtn" type="button" class="secondary" style="margin-top:10px;width:100%;font-size:12px;padding:8px 10px;border:1px dashed #d0d5dd;background:#f8f9fa;color:#475467;cursor:pointer;border-radius:6px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Reset Prototype Demo State (Clean 0s)
+          </button>
           <div class="message" id="message"></div>
         </section>
 
@@ -1098,7 +1102,32 @@ async function refreshStatus() {
 }
 
 connectBtn.addEventListener("click", connectCamera);
-disconnectBtn.addEventListener("click", disconnectCamera);
+disconnectBtn.addEventListener("click", async () => {
+  await disconnectCamera();
+  if (typeof window.updateKPIs === 'function') window.updateKPIs();
+});
+
+const resetDemoBtn = document.getElementById("resetDemoBtn");
+if (resetDemoBtn) {
+  resetDemoBtn.addEventListener("click", async () => {
+    try {
+      resetDemoBtn.disabled = true;
+      resetDemoBtn.textContent = "Resetting prototype...";
+      await disconnectCamera();
+      const res = await fetch("/api/prototype/reset", { method: "POST" });
+      const data = await res.json();
+      message.textContent = "Prototype demo state cleanly reset: 0 people, 0 active sessions, 0 alerts.";
+      message.style.color = "#16803c";
+      if (typeof window.updateKPIs === 'function') window.updateKPIs();
+    } catch (err) {
+      message.textContent = "Reset error: " + err.message;
+      message.style.color = "#b42318";
+    } finally {
+      resetDemoBtn.disabled = false;
+      resetDemoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Reset Prototype Demo State (Clean 0s)';
+    }
+  });
+}
 refreshStatus();
 setInterval(() => {
   if (shouldPollView('view-live') && !browserStreaming) refreshStatus();
@@ -1670,21 +1699,50 @@ loadSavedCameras();
       if (!res.ok) return;
       const data = await res.json();
       
-      // Camera Health
       const cam = data.camera || {};
       const elCam = document.getElementById('kpiCameraHealth');
-      if (elCam) {
-        if (!cam.connected) {
-          elCam.textContent = 'OFFLINE';
-          elCam.style.color = '#d92d20';
-        } else {
-          elCam.textContent = (cam.health || 'NORMAL').toUpperCase();
-          elCam.style.color = (cam.health === 'normal') ? '#18a558' : '#f79009';
-        }
-      }
       const elFps = document.getElementById('kpiCameraFps');
+      const elOcc = document.getElementById('kpiOccupancy');
+      const elOccSub = document.getElementById('kpiOccupancySub');
+      const elAtt = document.getElementById('kpiAttendance');
+      const elAttSub = document.getElementById('kpiAttendanceSub');
+      const elAssets = document.getElementById('kpiAssets');
+      const elAssetsSub = document.getElementById('kpiAssetsSub');
+      const elAlerts = document.getElementById('kpiAlerts');
+      const elAlertsSub = document.getElementById('kpiAlertsSub');
+      const navBadge = document.getElementById('navAlertsBadge');
+
+      // Camera Health & Offline Isolation
+      if (!cam.connected) {
+        if (elCam) {
+          elCam.textContent = 'DISCONNECTED';
+          elCam.style.color = '#667085';
+        }
+        if (elFps) elFps.textContent = 'FPS: — · Camera inactive';
+        if (elOcc) elOcc.textContent = '0';
+        if (elOccSub) elOccSub.textContent = '0 recognized · 0 unknown';
+        if (elAtt) elAtt.textContent = '0%';
+        if (elAttSub) elAttSub.textContent = 'No active session';
+        if (elAssets) elAssets.textContent = '0';
+        if (elAssetsSub) elAssetsSub.textContent = 'no items detected';
+        if (elAlerts) {
+          elAlerts.textContent = '0';
+          elAlerts.style.color = '#18a558';
+        }
+        if (elAlertsSub) elAlertsSub.textContent = '0 critical requiring review';
+        if (navBadge) {
+          navBadge.textContent = '0';
+          navBadge.classList.remove('visible');
+        }
+        return;
+      }
+
+      if (elCam) {
+        elCam.textContent = (cam.health || 'HEALTHY').toUpperCase();
+        elCam.style.color = (cam.health === 'healthy' || cam.health === 'normal') ? '#18a558' : '#f79009';
+      }
       if (elFps) {
-        if (browserMediaStream && browserMediaStream.active && browserStreaming) {
+        if (typeof browserMediaStream !== 'undefined' && browserMediaStream && browserMediaStream.active && browserStreaming) {
           // Keep live client-measured streaming indicator
         } else {
           const fps = Number(cam.actual_fps || cam.fps || 0).toFixed(1);
@@ -1695,32 +1753,30 @@ loadSavedCameras();
 
       // Occupancy
       const occ = data.occupancy || {};
-      const elOcc = document.getElementById('kpiOccupancy');
       if (elOcc) elOcc.textContent = occ.total || 0;
-      const elOccSub = document.getElementById('kpiOccupancySub');
       if (elOccSub) elOccSub.textContent = `${occ.recognized || 0} recognized · ${occ.unknown || 0} unknown`;
 
       // Attendance
       const att = data.attendance || {};
       const sum = att.summary || {};
-      const elAtt = document.getElementById('kpiAttendance');
       if (elAtt) elAtt.textContent = `${Number(sum.attendance_percentage || 0).toFixed(1)}%`;
-      const elAttSub = document.getElementById('kpiAttendanceSub');
       if (elAttSub) {
-        if (att.has_active_session) {
+        if (att.has_active_session && att.session && (sum.total_students > 0 || sum.present_count > 0)) {
           elAttSub.textContent = `${sum.present_count || 0}/${sum.total_students || 0} present (Active #${att.session?.id})`;
         } else {
           elAttSub.textContent = 'No active session';
         }
       }
 
-      // Infrastructure Assets
+      // Infrastructure Assets (strictly exclude 'person' human detection)
       const infra = data.infrastructure || {};
-      const counts = infra.detected_counts || infra.current_counts || infra.counts_by_class || {};
+      const rawCounts = infra.detected_counts || infra.current_counts || infra.counts_by_class || {};
+      const counts = {};
+      for (const [k, v] of Object.entries(rawCounts)) {
+        if (k.toLowerCase() !== 'person') counts[k] = v;
+      }
       const totalAssets = Object.values(counts).reduce((a, b) => a + Number(b), 0);
-      const elAssets = document.getElementById('kpiAssets');
       if (elAssets) elAssets.textContent = totalAssets;
-      const elAssetsSub = document.getElementById('kpiAssetsSub');
       if (elAssetsSub) {
         const parts = Object.entries(counts).map(([k, v]) => `${k}: ${v}`);
         elAssetsSub.textContent = parts.length ? parts.join(', ') : 'no items detected';
@@ -1728,17 +1784,22 @@ loadSavedCameras();
 
       // Compliance Alerts
       const comp = data.compliance || {};
-      const elAlerts = document.getElementById('kpiAlerts');
+      const alertCount = comp.active_alerts_count || 0;
+      const critCount = comp.critical_alerts_count || 0;
       if (elAlerts) {
-        elAlerts.textContent = comp.active_alerts_count || 0;
-        elAlerts.style.color = (comp.critical_alerts_count > 0) ? '#d92d20' : (comp.active_alerts_count > 0 ? '#b54708' : '#18a558');
+        elAlerts.textContent = alertCount;
+        elAlerts.style.color = (critCount > 0) ? '#d92d20' : (alertCount > 0 ? '#b54708' : '#18a558');
       }
-      const elAlertsSub = document.getElementById('kpiAlertsSub');
       if (elAlertsSub) {
-        elAlertsSub.textContent = `${comp.critical_alerts_count || 0} critical requiring review`;
+        elAlertsSub.textContent = `${critCount} critical requiring review`;
+      }
+      if (navBadge) {
+        navBadge.textContent = alertCount;
+        navBadge.classList.toggle('visible', alertCount > 0);
       }
     } catch (_) {}
   }
+  window.updateKPIs = updateKPIs;
   updateKPIs();
   setInterval(() => {
     if (!document.hidden) updateKPIs();

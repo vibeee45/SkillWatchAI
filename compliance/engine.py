@@ -190,6 +190,17 @@ class ComplianceAlertStore:
             self._event(conn, alert_id, row["fingerprint"], "MANUALLY_RESOLVED", {"reason": reason})
             return self._serialize(conn.execute("SELECT * FROM compliance_alerts WHERE id=?", (alert_id,)).fetchone())
 
+    def resolve_all(self, reason: str = "Demo reset"):
+        now = utc_now()
+        with self._lock, self._connect() as conn:
+            rows = conn.execute("SELECT * FROM compliance_alerts WHERE status='ACTIVE'").fetchall()
+            for row in rows:
+                conn.execute(
+                    "UPDATE compliance_alerts SET status='RESOLVED',resolved_at=?,resolution_reason=?,consecutive_evidence=0 WHERE id=?",
+                    (now, reason, row["id"]),
+                )
+                self._event(conn, row["id"], row["fingerprint"], "RESOLVED", {"reason": reason})
+
 
 class ComplianceEngine:
     def __init__(self, db_path: str | Path, config_path: str | Path):
@@ -200,6 +211,13 @@ class ComplianceEngine:
         self._previous_equipment: dict[str, set[str]] = {}
         self._equipment_absence_streaks: dict[str, int] = {}
         self.config = self._load_config()
+
+    def reset(self):
+        with self._lock:
+            self._streaks.clear()
+            self._previous_equipment.clear()
+            self._equipment_absence_streaks.clear()
+            self.store.resolve_all("Prototype demo state reset")
 
     def _load_config(self):
         config = json.loads(json.dumps(DEFAULT_CONFIG))

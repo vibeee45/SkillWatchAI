@@ -141,6 +141,7 @@ class AttendanceStore:
         return self.get_session(session_id)
 
     def active_session_for_camera(self, camera_id: str):
+        self.end_stale_sessions()
         with self._connect() as c:
             r = c.execute("""SELECT * FROM attendance_sessions
                 WHERE status='ACTIVE' AND camera_id=? ORDER BY id DESC LIMIT 1""", (camera_id,)).fetchone()
@@ -193,16 +194,40 @@ class AttendanceStore:
         with self._connect() as c:
             return [dict(r) for r in c.execute("SELECT * FROM attendance_audit WHERE session_id=? ORDER BY timestamp DESC", (session_id,)).fetchall()]
 
+    def end_all_active_sessions(self):
+        now = self._now()
+        with self._connect() as c:
+            c.execute("UPDATE attendance_sessions SET status='ENDED', ended_at=? WHERE status='ACTIVE'", (now,))
+
+    def end_stale_sessions(self, max_hours: float = 12.0):
+        now = self._now()
+        now_dt = datetime.now(timezone.utc)
+        with self._connect() as c:
+            rows = c.execute("SELECT id, started_at, created_at FROM attendance_sessions WHERE status='ACTIVE'").fetchall()
+            for r in rows:
+                ref_time_str = r['started_at'] or r['created_at']
+                try:
+                    ref_dt = datetime.fromisoformat(ref_time_str)
+                    if (now_dt - ref_dt).total_seconds() > max_hours * 3600:
+                        c.execute("UPDATE attendance_sessions SET status='ENDED', ended_at=? WHERE id=?", (now, r['id']))
+                except Exception:
+                    pass
+
     def summary(self, session_id: int, students: list[dict[str, Any]]):
         session = self.get_session(session_id)
         if not session:
             return None
         batch_id = session['batch_id']
         eligible = [s for s in students if s.get('batch') == batch_id or s.get('batch') == session['batch_id']]
+        eligible_ids = {s['student_id'] for s in eligible}
         records = self.records(session_id)
         by_id = {r['student_id']: r for r in records}
-        present = sum(1 for r in records if r['status'] == 'PRESENT')
-        total = len(eligible)
+        if eligible:
+            present = sum(1 for r in records if r['status'] == 'PRESENT' and r['student_id'] in eligible_ids)
+            total = len(eligible)
+        else:
+            present = 0
+            total = 0
         absent = max(total - present, 0)
         pct = round((present / total) * 100, 2) if total else 0.0
         return {'session': session, 'total_students': total, 'present_count': present, 'absent_count': absent,

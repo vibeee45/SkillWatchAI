@@ -301,52 +301,58 @@ def dashboard_summary():
     """Unified executive overview for dashboard and monitoring officers."""
     cam_status = camera_manager.get_status()
     _record_camera_health_transition(cam_status)
-    occ_status = occupancy_service.status()
-    infra_status = infrastructure_observations.status()
-    active_session = attendance_store.active_session_for_camera(cam_status.get("camera_id") or "")
-    att_summary = attendance_store.summary(active_session["id"], student_store.list()) if active_session else None
-    alerts_active = compliance_engine.store.list_alerts("ACTIVE", limit=100)
+    is_cam_connected = bool(cam_status.get("connected"))
+
+    occ_status = occupancy_service.status() if is_cam_connected else {}
+    infra_status = infrastructure_observations.status() if is_cam_connected else {}
+    active_session = attendance_store.active_session_for_camera(cam_status.get("camera_id") or "") if is_cam_connected else None
+    att_summary = attendance_store.summary(active_session["id"], student_store.list()) if (is_cam_connected and active_session) else None
+    alerts_active = compliance_engine.store.list_alerts("ACTIVE", limit=100) if is_cam_connected else []
     queue_status = event_queue.status()
     sync_status = event_sync_worker.status()
 
     critical_alerts = [a for a in alerts_active if str(a.get("severity", "")).lower() == "high"]
 
+    infra_counts = infra_status.get("counts_by_class") or infra_status.get("current_counts") or {}
+    # Ensure "person" is NEVER counted as equipment/infrastructure asset
+    filtered_infra_counts = {k: v for k, v in infra_counts.items() if str(k).strip().lower() != "person"}
+
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "camera": cam_status,
         "occupancy": {
-            "total": occ_status.get("smoothed_occupancy", 0),
-            "raw": occ_status.get("raw_occupancy", 0),
-            "recognized": occ_status.get("recognized_students", 0),
-            "unknown": occ_status.get("unknown_persons", 0),
-            "active_tracks": occ_status.get("active_tracks", 0),
+            "total": occ_status.get("smoothed_occupancy", 0) if is_cam_connected else 0,
+            "raw": occ_status.get("raw_occupancy", 0) if is_cam_connected else 0,
+            "recognized": occ_status.get("recognized_students", 0) if is_cam_connected else 0,
+            "unknown": occ_status.get("unknown_persons", 0) if is_cam_connected else 0,
+            "active_tracks": occ_status.get("active_tracks", 0) if is_cam_connected else 0,
         },
         "attendance": {
-            "has_active_session": active_session is not None,
-            "session": active_session,
+            "has_active_session": bool(is_cam_connected and active_session is not None),
+            "session": active_session if is_cam_connected else None,
             "summary": att_summary or {
                 "present_count": 0,
                 "absent_count": 0,
-                "total_students": len(student_store.list()),
+                "total_students": len(student_store.list()) if is_cam_connected else 0,
                 "attendance_percentage": 0.0,
             },
         },
         "infrastructure": {
-            "detected_counts": infra_status.get("counts_by_class") or infra_status.get("current_counts") or {},
-            "detection_valid": infra_status.get("detection_valid", False),
-            "detection_state": infra_status.get("detection_state", "UNKNOWN"),
+            "detected_counts": filtered_infra_counts if is_cam_connected else {},
+            "detection_valid": infra_status.get("detection_valid", False) if is_cam_connected else False,
+            "detection_state": infra_status.get("detection_state", "OFFLINE") if not is_cam_connected else infra_status.get("detection_state", "UNKNOWN"),
         },
         "compliance": {
-            "active_alerts_count": len(alerts_active),
-            "critical_alerts_count": len(critical_alerts),
-            "recent_alerts": alerts_active[:5],
+            "active_alerts_count": len(alerts_active) if is_cam_connected else 0,
+            "critical_alerts_count": len(critical_alerts) if is_cam_connected else 0,
+            "recent_alerts": alerts_active[:5] if is_cam_connected else [],
         },
         "offline": {
             "pending_events": queue_status.get("pending", 0),
             "synced_events": queue_status.get("synced", 0),
             "sync_configured": sync_status.get("configured", False),
         },
-        "pipeline": frame_pipeline.get_status().get("stats", {}),
+        "pipeline": frame_pipeline.get_status().get("stats", {}) if is_cam_connected else {},
     }
 
 
@@ -972,9 +978,33 @@ async def connect_uploaded_video(file: UploadFile = File(...), camera_id: str = 
 @app.post("/api/camera/disconnect")
 def disconnect_camera():
     camera_manager.disconnect()
+    occupancy_service.reset()
+    infrastructure_observations.reset()
+    cached_recognition_by_track.clear()
     status = camera_manager.get_status()
     _record_camera_health_transition(status)
     return {"message": "Camera disconnected.", "status": status}
+
+
+@app.post("/api/prototype/reset")
+def reset_prototype_demo():
+    """Reset prototype to pristine 0 state before recording demo videos."""
+    with camera_lock:
+        camera_manager.disconnect(clear_config=False)
+    occupancy_service.reset()
+    infrastructure_observations.reset()
+    cached_recognition_by_track.clear()
+    compliance_engine.reset()
+    attendance_store.end_all_active_sessions()
+    status = camera_manager.get_status()
+    _record_camera_health_transition(status)
+    return {
+        "status": "ok",
+        "message": "Prototype successfully reset to pristine demo state.",
+        "camera": status,
+        "occupancy": occupancy_service.status(),
+        "infrastructure": infrastructure_observations.status(),
+    }
 
 
 def _map_face_boxes_to_original(frame, detections):

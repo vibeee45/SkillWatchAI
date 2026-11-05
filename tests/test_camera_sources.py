@@ -143,3 +143,26 @@ def test_quick_add_student_with_camera_stream(client, monkeypatch):
     client.delete("/api/students/STU-QUICK-01")
     client.post("/api/camera/disconnect")
 
+
+
+def test_prototype_reset_and_zero_state(client):
+    """Verify /api/prototype/reset restores all KPIs to clean 0s and disconnected state."""
+    res = client.post("/api/prototype/reset")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+
+    summary_res = client.get("/api/dashboard/summary")
+    assert summary_res.status_code == 200
+    summary = summary_res.json()
+
+    assert summary["camera"]["connected"] is False
+    assert summary["camera"]["health"] == "disconnected"
+    assert summary["occupancy"]["total"] == 0
+    assert summary["occupancy"]["recognized"] == 0
+    assert summary["occupancy"]["unknown"] == 0
+    assert summary["attendance"]["has_active_session"] is False
+    assert summary["attendance"]["summary"]["present_count"] == 0
+    assert "person" not in summary["infrastructure"]["detected_counts"]
+    assert summary["infrastructure"]["detected_counts"] == {}
+    assert summary["compliance"]["active_alerts_count"] == 0

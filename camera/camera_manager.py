@@ -403,6 +403,16 @@ class CameraManager:
             self.last_error = None
             self.consecutive_failures = 0
             self._latest_frame = None
+            self.actual_fps = 0.0
+            self.last_success_monotonic = None
+            self.frame_quality = {"state": "unknown", "brightness": None, "sharpness": None}
+            self.width = 0
+            self.height = 0
+            self.frame_count = 0
+            self.last_frame_at = None
+            self.frozen_frame_count = 0
+            self._poor_quality_count = 0
+            self._fps_window_frames = 0
             if clear_config:
                 self.source = None
                 self.source_type = None
